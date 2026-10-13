@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitRunnerHub — 1-Click Self-Hosted Runner Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="brand-header">
+        <span>⚡ GitRunnerHub</span>
+        <span class="brand-badge">v1.0.0</span>
+      </div>
+
+      <div class="account-badge">
+        <div class="account-avatar" id="accountAvatar">L</div>
+        <div class="account-info">
+          <div class="name" id="accountName">Bùi Thế Long</div>
+          <div class="handle" id="accountHandle">@buithelong-all</div>
+        </div>
+      </div>
+
+      <!-- Nút Kiểm tra & Nạp Repos -->
+      <button class="btn-sync-all" id="btnRefreshRepos" onclick="refreshRepos()">
+        <span id="syncIcon">🔄</span>
+        <span id="syncText">Kiểm tra & Nạp tất cả Repos</span>
+      </button>
+
+      <div class="stats-card">
+        <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.5px;">
+          Hạ tầng Runner
+        </div>
+        <div class="stats-row">
+          <span>Hệ điều hành:</span>
+          <span id="statOS" style="color: var(--accent-cyan);">Đang quét...</span>
+        </div>
+        <div class="stats-row">
+          <span>Tổng số Repos:</span>
+          <span id="statTotalRepos" style="color: var(--accent-cyan);">0</span>
+        </div>
+        <div class="stats-row">
+          <span>🟢 Đã kích hoạt CI:</span>
+          <span id="statOnlineRunners" style="color: #34d399;">0</span>
+        </div>
+        <div class="stats-row">
+          <span>⚪ Chưa kích hoạt:</span>
+          <span id="statUnconfigured" style="color: var(--text-muted);">0</span>
+        </div>
+        <div class="stats-row">
+          <span>RAM rảnh:</span>
+          <span id="statRam">...</span>
+        </div>
+      </div>
+
+      <div style="margin-top: auto; font-size: 11px; color: var(--text-dim); line-height: 1.5;">
+        🔒 <b>Tự động hóa:</b> Khi kích hoạt, runner chạy như một system service thường trực. Không cần cấu hình lại mỗi lần mở app!
+      </div>
+    </div>
+
+    <!-- Main View -->
+    <div class="main-view">
+      <!-- Quick Add / Search Card -->
+      <div class="quick-input-card">
+        <div class="input-header">
+          <div>
+            <h2>Dán Link GitHub Repo hoặc Chọn từ danh sách</h2>
+            <p>Tự động nhận diện quyền và kích hoạt runner local miễn phí cho dự án</p>
+          </div>
+        </div>
+        <div class="input-bar-group">
+          <div class="url-input-wrapper">
+            <span class="url-icon">🔗</span>
+            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/buithelong-all/my-repo)...">
+          </div>
+          <button class="btn-action" id="btnScanRepo" onclick="handleScanUrl()">
+            <span>⚡ Kiểm tra & Kích hoạt</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Controls: Search & Filter Tabs -->
+      <div class="controls-row">
+        <div class="search-box">
+          <span>🔍</span>
+          <input type="text" id="searchInput" placeholder="Tìm kiếm nhanh tên repository..." oninput="handleSearch()">
+        </div>
+
+        <div class="filter-tabs">
+          <button class="tab-btn active" onclick="setFilter('all', this)">Tất cả (<span id="countAll">0</span>)</button>
+          <button class="tab-btn" onclick="setFilter('online', this)">🟢 Đã kích hoạt (<span id="countOnline">0</span>)</button>
+          <button class="tab-btn" onclick="setFilter('unconfigured', this)">⚪ Chưa kích hoạt (<span id="countUnconfigured">0</span>)</button>
+        </div>
+      </div>
+
+      <!-- Repos Grid -->
+      <div class="repos-grid" id="reposGrid">
+        <div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-dim);">
+          Đang nạp dữ liệu từ GitHub...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Setup Live Output -->
+  <div class="modal-overlay" id="setupModal">
+    <div class="modal-card">
+      <h3 style="font-size: 17px;" id="modalTitle">Đang kích hoạt Local CI Runner...</h3>
+      <p style="font-size: 13px; color: var(--text-muted);" id="modalDesc">Đang chuẩn bị gói runner và đăng ký service ngầm...</p>
+      
+      <div class="terminal-box" id="terminalLog"></div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn-secondary" id="modalCloseBtn" onclick="closeModal()" disabled>Đang xử lý...</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
