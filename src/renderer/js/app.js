@@ -164,6 +164,16 @@ function updateStats() {
   document.getElementById('countUnconfigured').textContent = unconf;
 }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function renderRepos(list) {
   const grid = document.getElementById('reposGrid');
   grid.innerHTML = '';
@@ -177,34 +187,46 @@ function renderRepos(list) {
     const card = document.createElement('div');
     card.className = `repo-card ${repo.runnerOnline ? 'active-runner' : ''}`;
 
+    const safeName = escapeHtml(repo.name);
+    const safeDesc = escapeHtml(repo.desc);
+    const safeUpdated = escapeHtml(repo.updated);
+    const safeRunnerName = escapeHtml(repo.runnerName || 'local-runner');
+    const isPrivate = repo.isPrivate;
+
     card.innerHTML = `
       <div class="card-top">
         <div class="repo-meta">
           <div class="repo-title">
-            <span>${repo.isPrivate ? '🔒' : '🌐'}</span>
-            <span title="${repo.name}">${repo.name}</span>
+            <span>${isPrivate ? '🔒' : '🌐'}</span>
+            <span title="${safeName}">${safeName}</span>
           </div>
-          <div class="repo-desc">${repo.desc}</div>
+          <div class="repo-desc">${safeDesc}</div>
         </div>
-        <div class="status-pill ${repo.runnerOnline ? 'online' : 'unconfigured'}">
-          ${repo.runnerOnline ? '● Runner Online' : '○ Chưa kích hoạt'}
+        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
+          <div class="status-pill ${repo.runnerOnline ? 'online' : 'unconfigured'}">
+            ${repo.runnerOnline ? '● Runner Online' : '○ Chưa kích hoạt'}
+          </div>
+          <span style="font-size: 10px; font-weight: 600; color: ${isPrivate ? '#10b981' : '#f59e0b'};">
+            ${isPrivate ? '✓ Private Safe' : '⚠️ Public PR Guard'}
+          </span>
         </div>
       </div>
 
       <div class="card-middle">
-        <span>🕒 ${repo.updated}</span>
+        <span>🕒 ${safeUpdated}</span>
         ${repo.runnerOnline ? `<span>⚡ <b style="color:#34d399">Đang sẵn sàng</b></span>` : ''}
       </div>
 
       <div class="card-bottom">
         ${repo.runnerOnline ? `
-          <div style="font-size: 11px; color: var(--text-dim);">
-            Runner: <code style="color:var(--accent-cyan);">${repo.runnerName || 'local-runner'}</code>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="btn-secondary" onclick="openRepoActions('${safeName}')" title="Mở lịch sử GitHub Actions">Lịch sử CI</button>
+            <button class="btn-secondary" onclick="handleLifecycle('restart', '${safeName}')" title="Khởi động lại Runner Service">🔄</button>
+            <button class="btn-secondary" style="color:#ef4444;" onclick="handleLifecycle('detach', '${safeName}')" title="Gỡ bỏ Runner khỏi Repo">🗑️</button>
           </div>
-          <button class="btn-secondary" onclick="openRepoActions('${repo.name}')">Lịch sử CI</button>
         ` : `
-          <div style="font-size: 11px; color: var(--text-dim);">${repo.isPrivate ? 'Private' : 'Public'}</div>
-          <button class="btn-install" onclick="setupRunner('${repo.name}')">
+          <div style="font-size: 11px; color: var(--text-dim);">${isPrivate ? 'Private' : 'Public'}</div>
+          <button class="btn-install" onclick="setupRunner('${safeName}')">
             <span>⚡ Gắn Local CI</span>
           </button>
         `}
@@ -212,6 +234,51 @@ function renderRepos(list) {
     `;
     grid.appendChild(card);
   });
+}
+
+async function handleLifecycle(action, repoName) {
+  if (action === 'detach') {
+    if (!confirm(`Anh có chắc chắn muốn gỡ bỏ (detach) runner của repo ${repoName} không?`)) {
+      return;
+    }
+  }
+
+  const modal = document.getElementById('setupModal');
+  const term = document.getElementById('terminalLog');
+  const closeBtn = document.getElementById('modalCloseBtn');
+
+  document.getElementById('modalTitle').textContent = `Đang thực hiện '${action}' cho ${repoName}...`;
+  term.innerHTML = `> [Lifecycle] Bắt đầu tác vụ: ${action}...\n`;
+  closeBtn.disabled = true;
+  modal.classList.add('active');
+
+  if (isElectron) {
+    const res = await window.gitRunnerAPI.lifecycleRunner(action, repoName);
+    if (res.success) {
+      term.innerHTML += `<br><b style="color:#34d399">> ✅ Tác vụ '${action}' hoàn tất thành công!</b><br>`;
+      if (action === 'detach') {
+        const saved = getSavedActivatedRepos().filter(r => r !== repoName);
+        localStorage.setItem('git_runner_activated_repos', JSON.stringify(saved));
+        const target = allRepos.find(r => r.name === repoName);
+        if (target) {
+          target.runnerOnline = false;
+          target.runnerName = null;
+        }
+        updateStats();
+        handleSearch();
+      }
+    } else {
+      term.innerHTML += `<br><b style="color:#ef4444">> ❌ Thất bại với mã thoát: ${res.exitCode}.</b><br>`;
+    }
+    closeBtn.disabled = false;
+    closeBtn.textContent = 'Đóng';
+  } else {
+    setTimeout(() => {
+      term.innerHTML += `<b style="color:#34d399">> ✅ Tác vụ hoàn tất (Preview Mode).</b><br>`;
+      closeBtn.disabled = false;
+      closeBtn.textContent = 'Đóng';
+    }, 800);
+  }
 }
 
 function setFilter(type, el) {

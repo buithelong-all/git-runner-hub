@@ -209,3 +209,69 @@ ipcMain.handle('app:open-external', async (_, url) => {
     shell.openExternal(url);
   }
 });
+
+// IPC Handler: Điều khiển Lifecycle Runner (status, start, stop, restart, detach) [GRH-174]
+ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) => {
+  const isWindows = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
+
+  event.sender.send('runner:log', `> [Lifecycle] Thực hiện '${action}' cho ${repoFullName}...\n`);
+
+  let removeToken = '';
+  if (action === 'detach') {
+    // Lấy remove token qua GitHub CLI
+    removeToken = await new Promise((res) => {
+      const tokenCmd = `gh api --method POST "repos/${repoFullName}/actions/runners/remove-token" --jq .token`;
+      exec(tokenCmd, (err, stdout) => {
+        if (err || !stdout.trim() || stdout.includes('null')) res('');
+        else res(stdout.trim());
+      });
+    });
+  }
+
+  const scriptFileName = isMac ? 'runner-lifecycle-mac.sh' : 'runner-lifecycle-linux.sh';
+  let scriptContent = '';
+  try {
+    const scriptPath = path.join(__dirname, '../../scripts', scriptFileName);
+    scriptContent = fs.readFileSync(scriptPath, 'utf8').replace(/\r\n/g, '\n');
+  } catch (err) {
+    event.sender.send('runner:log', `❌ Lỗi đọc script: ${err.message}\n`);
+    return { success: false, exitCode: 1 };
+  }
+
+  return new Promise((resolve) => {
+    if (isWindows) {
+      const writeProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '-c', 'cat > /tmp/git-runner-lifecycle.sh && chmod +x /tmp/git-runner-lifecycle.sh']);
+      writeProc.stdin.write(scriptContent);
+      writeProc.stdin.end();
+
+      writeProc.on('close', (writeCode) => {
+        if (writeCode !== 0) {
+          event.sender.send('runner:log', `❌ Lỗi ghi file lifecycle vào WSL (mã: ${writeCode})\n`);
+          return resolve({ success: false, exitCode: writeCode });
+        }
+
+        const execProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '/tmp/git-runner-lifecycle.sh', action, repoFullName, removeToken]);
+
+        execProc.stdout.on('data', (d) => event.sender.send('runner:log', d.toString()));
+        execProc.stderr.on('data', (d) => event.sender.send('runner:log', d.toString()));
+
+        execProc.on('close', (code) => {
+          resolve({ success: code === 0, exitCode: code });
+        });
+      });
+    } else {
+      const tmpPath = '/tmp/git-runner-lifecycle.sh';
+      fs.writeFileSync(tmpPath, scriptContent, { mode: 0o755 });
+      const execProc = spawn('bash', [tmpPath, action, repoFullName, removeToken]);
+
+      execProc.stdout.on('data', (d) => event.sender.send('runner:log', d.toString()));
+      execProc.stderr.on('data', (d) => event.sender.send('runner:log', d.toString()));
+
+      execProc.on('close', (code) => {
+        resolve({ success: code === 0, exitCode: code });
+      });
+    }
+  });
+});
+
