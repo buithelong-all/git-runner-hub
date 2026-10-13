@@ -1,0 +1,31 @@
+name: Local CI Verification
+
+on:
+  push:
+    branches: ["main", "codex/**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Local CI Suite
+    runs-on: [self-hosted, Linux, X64]
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Run Unified Local Validation
+        run: |
+          bash scripts/ci/validate.sh --ci
+
+      - name: Report Summary
+        if: always()
+        run: |
+          echo "### ⚡ Local CI Execution Finished" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runner:** ${{ runner.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit SHA:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
