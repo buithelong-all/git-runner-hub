@@ -2,6 +2,8 @@
 
 > **1-Click GitHub Actions Self-Hosted Runner Manager for Windows & macOS**  
 > *Hạ tầng Local CI dùng chung cho mọi Coding Agent (Antigravity, Codex, Claude Code, Cursor...) — Hoàn toàn miễn phí, 0 phút quota GitHub.*
+> **Upgrade status:** v2 production-hardening plan is tracked in [docs/UPGRADE-PLAN-v2.md](docs/UPGRADE-PLAN-v2.md). Antigravity/Codex should treat that document as the execution source of truth until all P0 gates pass.
+
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20(WSL2)%20%7C%20macOS%20(Apple%20Silicon%20%26%20Intel)-cyan.svg)]()
