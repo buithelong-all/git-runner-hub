@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "test": "node --test test/**/*.test.js",
     "build": "electron-builder --dir",
     "dist:win": "electron-builder --win portable --dir",
     "dist:mac": "electron-builder --mac"
