@@ -72,3 +72,23 @@ test('Platform & Architecture Detection (GRH-120)', () => {
   assert.ok(['x64', 'arm64'].includes(p.runnerArch));
   assert.ok(p.runnerTarName.includes('2.338.0'));
 });
+
+test('Runner Lifecycle & Checksums (GRH-125..128)', () => {
+  const { getRunnerChecksum, getServiceUnitName, parseRunnerList } = require('../src/core/runner');
+  
+  assert.equal(getRunnerChecksum('linux', 'x64'), '7ea4d6350325d975a507851d7fe31d17d59850cfdf15bfbc1309d43d1a8e104d');
+  assert.equal(getRunnerChecksum('macos', 'arm64'), 'a6e3557e2df283bc486adbc4ce42ec5304192b02787e9c3cf0c1ea354bbbe5ea');
+  assert.equal(getRunnerChecksum('invalid', 'arch'), null);
+
+  const unit = getServiceUnitName('buithelong-all-caevietnam.vn');
+  assert.ok(unit.includes('actions.runner'));
+
+  const parsed = parseRunnerList([
+    { id: 1, name: 'local-caevietnam.vn', status: 'online', busy: false },
+    { id: 2, name: 'other-runner', status: 'offline', busy: false }
+  ], 'caevietnam.vn');
+
+  assert.equal(parsed.length, 2);
+  assert.equal(parsed[0].isTargetRepo, true);
+  assert.equal(parsed[1].isTargetRepo, false);
+});
