@@ -106,4 +106,4 @@ bash scripts/ci/validate.sh
 
 ## 📄 License
 Phát hành theo giấy phép [MIT License](LICENSE).
-Được xây dựng bởi **Bùi Thế Long** (CAE Vietnam).
+Được xây dựng bởi **Bùi Thế Long**.

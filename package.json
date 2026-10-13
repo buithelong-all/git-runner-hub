@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "1-Click GitHub Actions Self-Hosted Runner Manager for Windows & macOS — Zero Cloud CI Cost for Coding Agents",
   "main": "src/main/main.js",
-  "author": "Bui The Long <buithelong@caevietnam.vn>",
+  "author": "Bui The Long",
   "license": "MIT",
   "homepage": "https://github.com/buithelong-all/git-runner-hub",
   "scripts": {
