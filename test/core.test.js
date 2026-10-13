@@ -92,3 +92,46 @@ test('Runner Lifecycle & Checksums (GRH-125..128)', () => {
   assert.equal(parsed[0].isTargetRepo, true);
   assert.equal(parsed[1].isTargetRepo, false);
 });
+
+test('Workflow Routing & Patching (GRH-140..149)', () => {
+  const { inspectWorkflow, generateProposedPatch, verifyRunExecution } = require('../src/core/workflow');
+
+  const githubHostedYaml = `
+name: Test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm test
+`;
+  const info = inspectWorkflow(githubHostedYaml);
+  assert.equal(info.routing, 'GITHUB_HOSTED');
+  assert.equal(info.hasDuplicateTriggers, true);
+  assert.equal(info.isDeployWorkflow, false);
+  assert.equal(info.hasConcurrency, false);
+
+  const patched = generateProposedPatch(githubHostedYaml, 'my-repo-local');
+  assert.ok(patched.includes('runs-on: [self-hosted, Linux, X64, my-repo-local]'));
+  assert.ok(patched.includes('concurrency:'));
+
+  const deployYaml = `
+name: Deploy Production
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: deploy.sh
+`;
+  const deployInfo = inspectWorkflow(deployYaml);
+  assert.equal(deployInfo.isDeployWorkflow, true);
+
+  const v1 = verifyRunExecution({ runner_name: 'local-caevietnam.vn' }, 'local-caevietnam.vn');
+  assert.equal(v1.verified, true);
+
+  const v2 = verifyRunExecution({ runner_name: 'GitHub-Actions-Hosted' }, 'local-caevietnam.vn');
+  assert.equal(v2.verified, false);
+});
