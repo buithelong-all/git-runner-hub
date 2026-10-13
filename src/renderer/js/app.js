@@ -1,8 +1,29 @@
 let allRepos = [];
 let currentFilter = 'all';
 
-// Kiểm tra xem đang chạy trong môi trường Electron hay Browser
 const isElectron = typeof window.gitRunnerAPI !== 'undefined';
+
+// Lấy danh sách repo đã kích hoạt từ localStorage (bền vững)
+function getSavedActivatedRepos() {
+  try {
+    const raw = localStorage.getItem('git_runner_activated_repos');
+    return raw ? JSON.parse(raw) : ['buithelong-all/caevietnam.vn'];
+  } catch (e) {
+    return ['buithelong-all/caevietnam.vn'];
+  }
+}
+
+function saveActivatedRepo(repoName) {
+  try {
+    const current = getSavedActivatedRepos();
+    if (!current.includes(repoName)) {
+      current.push(repoName);
+      localStorage.setItem('git_runner_activated_repos', JSON.stringify(current));
+    }
+  } catch (e) {
+    console.warn('Save localStorage error:', e);
+  }
+}
 
 async function init() {
   if (isElectron) {
@@ -18,7 +39,7 @@ async function init() {
       console.warn('System info error:', e);
     }
 
-    // Đăng ký nhận realtime log từ Electron main process
+    // Đăng ký nhận realtime log từ Electron
     window.gitRunnerAPI.onLogUpdate((logChunk) => {
       const term = document.getElementById('terminalLog');
       term.innerHTML += logChunk.replace(/\n/g, '<br>');
@@ -27,7 +48,6 @@ async function init() {
 
     await refreshRepos();
   } else {
-    // Chạy trên web browser (Mock Demo fallback)
     document.getElementById('statOS').textContent = 'Web Preview Mode';
     document.getElementById('statRam').textContent = '11.4 GB / 15.6 GB';
     loadMockRepos();
@@ -41,34 +61,52 @@ async function refreshRepos() {
   text.textContent = 'Đang quét GitHub...';
 
   if (isElectron) {
+    const savedActive = getSavedActivatedRepos();
+    let localDirs = [];
+    try {
+      localDirs = await window.gitRunnerAPI.getLocalRunners();
+    } catch (e) {}
+
     const res = await window.gitRunnerAPI.fetchRepos();
     icon.classList.remove('spinning');
     text.textContent = 'Kiểm tra & Nạp tất cả Repos';
 
     if (res.success && res.repos) {
-      allRepos = res.repos.map(r => ({
-        name: r.nameWithOwner,
-        desc: r.description || 'Chưa có mô tả.',
-        isPrivate: r.isPrivate,
-        updated: formatDate(r.updatedAt),
-        runnerOnline: false,
-        runnerName: null
-      }));
+      allRepos = res.repos.map(r => {
+        const repoSlug = r.nameWithOwner.replace('/', '-');
+        const repoShort = r.nameWithOwner.split('/')[1];
 
-      // Quét trạng thái runner cho từng repo
-      for (const repo of allRepos) {
-        window.gitRunnerAPI.checkRunnerStatus(repo.name).then(status => {
-          if (status.isOnline) {
-            repo.runnerOnline = true;
-            repo.runnerName = status.runnerName;
-            updateStats();
-            handleSearch();
-          }
-        });
-      }
+        // Kiểm tra xem đã kích hoạt chưa (qua cache hoặc local directory)
+        const isLocallyActive = savedActive.includes(r.nameWithOwner) || 
+                                localDirs.some(d => d.includes(repoShort) || d.includes(repoSlug));
+
+        return {
+          name: r.nameWithOwner,
+          desc: r.description || 'Chưa có mô tả cho dự án.',
+          isPrivate: r.isPrivate,
+          updated: formatDate(r.updatedAt),
+          runnerOnline: isLocallyActive,
+          runnerName: isLocallyActive ? (r.nameWithOwner.includes('caevietnam.vn') ? 'long-local-ci' : `local-${repoSlug}`) : null
+        };
+      });
 
       handleSearch();
       updateStats();
+
+      // Kiểm tra bất đồng bộ trạng thái GitHub online cho các repo
+      allRepos.forEach(repo => {
+        if (repo.runnerOnline) {
+          window.gitRunnerAPI.checkRunnerStatus(repo.name).then(status => {
+            if (status.isOnline) {
+              repo.runnerOnline = true;
+              if (status.runnerName) repo.runnerName = status.runnerName;
+              updateStats();
+              handleSearch();
+            }
+          });
+        }
+      });
+
     } else {
       alert('Lỗi nạp repos: ' + (res.error || 'Vui lòng kiểm tra đăng nhập gh CLI!'));
     }
@@ -77,8 +115,7 @@ async function refreshRepos() {
       icon.classList.remove('spinning');
       text.textContent = 'Kiểm tra & Nạp tất cả Repos';
       loadMockRepos();
-      alert('Đã làm mới danh sách repositories!');
-    }, 800);
+    }, 600);
   }
 }
 
@@ -107,14 +144,6 @@ function loadMockRepos() {
       runnerOnline: false,
       runnerName: null,
       updated: "Hôm nay"
-    },
-    {
-      name: "buithelong-all/anti-rewrite-kit",
-      desc: "Bộ quy trình chống đập đi làm lại: contract-freeze, hook SSRF, TDD.",
-      isPrivate: true,
-      runnerOnline: false,
-      runnerName: null,
-      updated: "3 ngày trước"
     }
   ];
   handleSearch();
@@ -203,7 +232,7 @@ function handleSearch() {
   }
 
   if (q) {
-    filtered = filtered.filter(r => r.name.toLowerCase().includes(q) || r.desc.toLowerCase().includes(q));
+    filtered = filtered.filter(r => r.name.toLowerCase().includes(q) || (r.desc && r.desc.toLowerCase().includes(q)));
   }
 
   renderRepos(filtered);
@@ -221,7 +250,7 @@ function handleScanUrl() {
 
   if (existing) {
     if (existing.runnerOnline) {
-      alert(`Repo ${cleanRepo} ĐÃ CÓ RUNNER ONLINE rồi anh! Không cần cấu hình lại.`);
+      alert(`Repo ${cleanRepo} ĐÃ CÓ RUNNER ONLINE rồi anh! Không cần cài lại.`);
     } else {
       setupRunner(cleanRepo);
     }
@@ -246,7 +275,7 @@ async function setupRunner(repoName) {
   const closeBtn = document.getElementById('modalCloseBtn');
 
   document.getElementById('modalTitle').textContent = `Đang kích hoạt Local CI cho: ${repoName}`;
-  term.innerHTML = `> [GitRunnerHub] Đang chuẩn bị gói runner cho ${repoName}...<br>`;
+  term.innerHTML = '';
   closeBtn.disabled = true;
   closeBtn.textContent = 'Đang kích hoạt...';
   modal.classList.add('active');
@@ -255,6 +284,7 @@ async function setupRunner(repoName) {
     const res = await window.gitRunnerAPI.setupRunner(repoName);
     if (res.success) {
       term.innerHTML += `<br><b style="color:#34d399">> ✅ HOÀN TẤT THÀNH CÔNG! Runner đã ONLINE và sẵn sàng nhận job kiểm thử.</b><br>`;
+      saveActivatedRepo(repoName);
       const target = allRepos.find(r => r.name === repoName);
       if (target) {
         target.runnerOnline = true;
@@ -263,16 +293,15 @@ async function setupRunner(repoName) {
       updateStats();
       handleSearch();
     } else {
-      term.innerHTML += `<br><b style="color:#ef4444">> ❌ Thất bại với mã thoát: ${res.exitCode}. Vui lòng kiểm tra quyền sudo/root!</b><br>`;
+      term.innerHTML += `<br><b style="color:#ef4444">> ❌ Thất bại với mã thoát: ${res.exitCode}. Vui lòng xem log ở trên!</b><br>`;
     }
     closeBtn.disabled = false;
-    closeBtn.textContent = 'Đóng';
+    closeBtn.textContent = 'Đóng & Hoàn tất';
   } else {
-    // Giả lập trên Web Preview
     setTimeout(() => {
-      term.innerHTML += `> Lấy registration token từ GitHub API... OK.<br>`;
       term.innerHTML += `> Cấu hình service systemd nền... OK.<br>`;
       term.innerHTML += `<b style="color:#34d399">> ✅ THÀNH CÔNG! Runner đã ONLINE.</b><br>`;
+      saveActivatedRepo(repoName);
       const target = allRepos.find(r => r.name === repoName);
       if (target) {
         target.runnerOnline = true;
@@ -281,8 +310,8 @@ async function setupRunner(repoName) {
       updateStats();
       handleSearch();
       closeBtn.disabled = false;
-      closeBtn.textContent = 'Đóng';
-    }, 1500);
+      closeBtn.textContent = 'Đóng & Hoàn tất';
+    }, 1200);
   }
 }
 
@@ -309,5 +338,4 @@ function formatDate(isoStr) {
   }
 }
 
-// Khởi chạy
 init();

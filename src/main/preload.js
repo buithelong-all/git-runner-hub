@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('gitRunnerAPI', {
   getSystemInfo: () => ipcRenderer.invoke('app:get-system-info'),
   fetchRepos: () => ipcRenderer.invoke('app:fetch-repos'),
+  getLocalRunners: () => ipcRenderer.invoke('app:get-local-runners'),
   checkRunnerStatus: (repo) => ipcRenderer.invoke('app:check-runner-status', repo),
   setupRunner: (repo) => ipcRenderer.invoke('app:setup-runner', repo),
   openExternal: (url) => ipcRenderer.invoke('app:open-external', url),
