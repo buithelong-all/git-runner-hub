@@ -135,3 +135,33 @@ jobs:
   const v2 = verifyRunExecution({ runner_name: 'GitHub-Actions-Hosted' }, 'local-caevietnam.vn');
   assert.equal(v2.verified, false);
 });
+
+test('Evidence & Failure Classification (GRH-161, GRH-165)', () => {
+  const { createEvidenceRecord, classifyFailure } = require('../src/core/evidence');
+
+  const ev = createEvidenceRecord({
+    repository: 'buithelong-all/caevietnam.vn',
+    sha: 'e111d91',
+    isClean: true,
+    exitCode: 0,
+    runnerName: 'long-local-ci'
+  });
+
+  assert.equal(ev.status, 'PASS');
+  assert.equal(ev.sha, 'e111d91');
+
+  // Test phân loại failure
+  const pass = classifyFailure(0);
+  assert.equal(pass.type, 'NONE');
+
+  const diskErr = classifyFailure(1, 'Error: ENOSPC: no space left on device');
+  assert.equal(diskErr.type, 'INFRASTRUCTURE_FAILURE');
+  assert.equal(diskErr.reason, 'DISK_FULL');
+
+  const permErr = classifyFailure(126, 'Permission denied');
+  assert.equal(permErr.type, 'INFRASTRUCTURE_FAILURE');
+  assert.equal(permErr.reason, 'PERMISSION_DENIED');
+
+  const testFail = classifyFailure(1, 'AssertionError [ERR_ASSERTION]: Expected true to be false');
+  assert.equal(testFail.type, 'PRODUCT_TEST_FAILURE');
+});
