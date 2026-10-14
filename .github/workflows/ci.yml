@@ -24,6 +24,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Read-only host isolation observation
+        run: bash scripts/ci/host-isolation-readonly.sh
+
       - name: Run Unified Local Validation
         run: |
           bash scripts/ci/validate.sh --ci
