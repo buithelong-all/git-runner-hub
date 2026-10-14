@@ -1,5 +1,9 @@
 let allRepos = [];
 let currentFilter = 'all';
+let currentUser = null;
+let currentDeviceCode = null;
+let devicePollTimer = null;
+let deviceVerificationUri = 'https://github.com/login/device';
 
 const isElectron = typeof window.gitRunnerAPI !== 'undefined';
 
@@ -25,16 +29,16 @@ function saveActivatedRepo(repoName) {
   }
 }
 
+// ==============================================================================
+// INITIALIZATION & AUTH STATE [GRH-201..204]
+// ==============================================================================
+
 async function init() {
   if (isElectron) {
     try {
       const sysInfo = await window.gitRunnerAPI.getSystemInfo();
       document.getElementById('statOS').textContent = sysInfo.platform;
       document.getElementById('statRam').textContent = `${sysInfo.freeMem} GB / ${sysInfo.totalMem} GB`;
-      if (sysInfo.ghAccount && sysInfo.ghAccount !== 'Unknown') {
-        document.getElementById('accountHandle').textContent = `@${sysInfo.ghAccount}`;
-        document.getElementById('accountAvatar').textContent = sysInfo.ghAccount.charAt(0).toUpperCase();
-      }
     } catch (e) {
       console.warn('System info error:', e);
     }
@@ -42,11 +46,14 @@ async function init() {
     // Đăng ký nhận realtime log từ Electron
     window.gitRunnerAPI.onLogUpdate((logChunk) => {
       const term = document.getElementById('terminalLog');
-      term.innerHTML += logChunk.replace(/\n/g, '<br>');
-      term.scrollTop = term.scrollHeight;
+      if (term) {
+        term.innerHTML += logChunk.replace(/\n/g, '<br>');
+        term.scrollTop = term.scrollHeight;
+      }
     });
 
-    await refreshRepos();
+    // Nạp hồ sơ người dùng
+    await loadAccountProfile();
   } else {
     document.getElementById('statOS').textContent = 'Web Preview Mode';
     document.getElementById('statRam').textContent = '11.4 GB / 15.6 GB';
@@ -54,208 +61,423 @@ async function init() {
   }
 }
 
+async function loadAccountProfile() {
+  if (!isElectron) return;
+
+  try {
+    const authStatus = await window.gitRunnerAPI.getCurrentUser();
+    const avatarEl = document.getElementById('accountAvatar');
+    const nameEl = document.getElementById('accountName');
+    const handleEl = document.getElementById('accountHandle');
+    const actionsEl = document.getElementById('accountActions');
+    const promptEl = document.getElementById('accountLoginPrompt');
+
+    if (authStatus && authStatus.loggedIn && authStatus.user) {
+      currentUser = authStatus.user;
+      nameEl.textContent = currentUser.name || currentUser.login;
+      handleEl.textContent = `@${currentUser.login}`;
+
+      if (currentUser.avatarUrl) {
+        avatarEl.innerHTML = `<img src="${currentUser.avatarUrl}" alt="${currentUser.login}" />`;
+      } else {
+        avatarEl.textContent = currentUser.initials || currentUser.login.charAt(0).toUpperCase();
+      }
+
+      actionsEl.style.display = 'flex';
+      promptEl.style.display = 'none';
+
+      await refreshRepos();
+    } else {
+      currentUser = null;
+      avatarEl.innerHTML = '?';
+      nameEl.textContent = 'Chưa đăng nhập';
+      handleEl.textContent = 'Bấm để kết nối tài khoản';
+      actionsEl.style.display = 'none';
+      promptEl.style.display = 'block';
+
+      allRepos = [];
+      updateStats();
+      renderEmptyLoginState();
+    }
+  } catch (err) {
+    console.warn('Load account profile error:', err);
+  }
+}
+
+function renderEmptyLoginState() {
+  const grid = document.getElementById('reposGrid');
+  grid.innerHTML = `
+    <div style="grid-column: 1/-1; padding: 60px 20px; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 14px;">
+      <div style="font-size: 36px;">🔒</div>
+      <h3 style="color: var(--text-main); font-size: 18px;">Chưa kết nối tài khoản GitHub</h3>
+      <p style="max-width: 440px; font-size: 13px; color: var(--text-dim); line-height: 1.5;">
+        Đăng nhập để GitRunnerHub tự động tải danh sách repository và cấp quyền tự động cho self-hosted runner.
+      </p>
+      <button class="btn-primary-action" onclick="openLoginModal()" style="margin-top: 8px;">
+        <span>🔑</span> Đăng nhập ngay
+      </button>
+    </div>
+  `;
+}
+
+// ==============================================================================
+// LOGIN MODAL & AUTH FLOWS [GRH-201..202]
+// ==============================================================================
+
+function openLoginModal() {
+  const modal = document.getElementById('loginModal');
+  const errorMsg = document.getElementById('authErrorMsg');
+  errorMsg.style.display = 'none';
+  errorMsg.textContent = '';
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+}
+
+function closeLoginModal() {
+  const modal = document.getElementById('loginModal');
+  modal.style.display = 'none';
+  modal.classList.remove('active');
+  if (devicePollTimer) {
+    clearInterval(devicePollTimer);
+    devicePollTimer = null;
+  }
+  document.getElementById('deviceFlowInitial').style.display = 'block';
+  document.getElementById('deviceFlowActive').style.display = 'none';
+}
+
+function switchAuthTab(tabId, btn) {
+  document.querySelectorAll('.auth-tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.auth-tab-content').forEach(c => c.style.display = 'none');
+  btn.classList.add('active');
+
+  const errorMsg = document.getElementById('authErrorMsg');
+  errorMsg.style.display = 'none';
+
+  if (tabId === 'device-flow') {
+    document.getElementById('tabDeviceFlow').style.display = 'flex';
+  } else if (tabId === 'token') {
+    document.getElementById('tabToken').style.display = 'flex';
+  } else if (tabId === 'gh-cli') {
+    document.getElementById('tabGhCli').style.display = 'flex';
+  }
+}
+
+// 1. Device Flow Login
+async function startDeviceLogin() {
+  const errorMsg = document.getElementById('authErrorMsg');
+  errorMsg.style.display = 'none';
+
+  try {
+    const res = await window.gitRunnerAPI.startDeviceFlow();
+    if (!res.success) {
+      errorMsg.textContent = res.error || 'Không thể khởi tạo mã xác thực';
+      errorMsg.style.display = 'block';
+      return;
+    }
+
+    currentDeviceCode = res.deviceCode;
+    deviceVerificationUri = res.verificationUri || 'https://github.com/login/device';
+    document.getElementById('deviceUserCode').textContent = res.userCode;
+
+    document.getElementById('deviceFlowInitial').style.display = 'none';
+    document.getElementById('deviceFlowActive').style.display = 'flex';
+
+    // Bắt đầu polling
+    if (devicePollTimer) clearInterval(devicePollTimer);
+    const intervalSec = (res.interval || 5);
+    devicePollTimer = setInterval(async () => {
+      const pollRes = await window.gitRunnerAPI.pollDeviceFlow(currentDeviceCode);
+      if (pollRes.status === 'granted') {
+        clearInterval(devicePollTimer);
+        devicePollTimer = null;
+        closeLoginModal();
+        await loadAccountProfile();
+      } else if (pollRes.status === 'expired' || pollRes.status === 'denied' || pollRes.status === 'error') {
+        clearInterval(devicePollTimer);
+        devicePollTimer = null;
+        errorMsg.textContent = pollRes.error || 'Xác thực thất bại hoặc hết hạn';
+        errorMsg.style.display = 'block';
+        document.getElementById('deviceFlowInitial').style.display = 'block';
+        document.getElementById('deviceFlowActive').style.display = 'none';
+      }
+    }, intervalSec * 1000);
+
+  } catch (err) {
+    errorMsg.textContent = 'Lỗi kết nối: ' + err.message;
+    errorMsg.style.display = 'block';
+  }
+}
+
+function copyAndOpenDeviceUri() {
+  const code = document.getElementById('deviceUserCode').textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(code);
+  }
+  const btn = document.getElementById('btnOpenDeviceUri');
+  btn.textContent = '✓ Đã copy! Đang mở GitHub...';
+  setTimeout(() => {
+    btn.textContent = '📋 Copy Mã & Mở Trang GitHub';
+  }, 3000);
+
+  if (isElectron) {
+    window.gitRunnerAPI.openExternal(deviceVerificationUri);
+  } else {
+    window.open(deviceVerificationUri, '_blank');
+  }
+}
+
+// 2. PAT Login
+async function handlePatLogin() {
+  const input = document.getElementById('patInput');
+  const errorMsg = document.getElementById('authErrorMsg');
+  const token = input.value.trim();
+
+  if (!token) {
+    errorMsg.textContent = 'Vui lòng dán Personal Access Token của bạn';
+    errorMsg.style.display = 'block';
+    return;
+  }
+
+  errorMsg.style.display = 'none';
+  const res = await window.gitRunnerAPI.loginWithToken(token);
+
+  if (res.success) {
+    input.value = '';
+    closeLoginModal();
+    await loadAccountProfile();
+  } else {
+    errorMsg.textContent = res.error || 'Token không hợp lệ hoặc thiếu quyền';
+    errorMsg.style.display = 'block';
+  }
+}
+
+// 3. GitHub CLI Import
+async function handleGhCliImport() {
+  const errorMsg = document.getElementById('authErrorMsg');
+  errorMsg.style.display = 'none';
+
+  const res = await window.gitRunnerAPI.loginWithGhCli();
+  if (res.success) {
+    closeLoginModal();
+    await loadAccountProfile();
+  } else {
+    errorMsg.textContent = res.error || 'Không thể nhập phiên từ gh CLI';
+    errorMsg.style.display = 'block';
+  }
+}
+
+// 4. Logout
+async function handleLogout() {
+  if (confirm('Bạn có chắc muốn đăng xuất khỏi GitRunnerHub?')) {
+    await window.gitRunnerAPI.logout();
+    await loadAccountProfile();
+  }
+}
+
+// ==============================================================================
+// REPOSITORIES & RUNNERS MANAGEMENT
+// ==============================================================================
+
 async function refreshRepos() {
+  if (!isElectron) return;
   const icon = document.getElementById('syncIcon');
   const text = document.getElementById('syncText');
   icon.classList.add('spinning');
   text.textContent = 'Đang quét GitHub...';
 
-  if (isElectron) {
-    const savedActive = getSavedActivatedRepos();
-    let localDirs = [];
-    try {
-      localDirs = await window.gitRunnerAPI.getLocalRunners();
-    } catch (e) {}
+  const savedActive = getSavedActivatedRepos();
+  let localDirs = [];
+  try {
+    localDirs = await window.gitRunnerAPI.getLocalRunners();
+  } catch (e) {}
 
-    const res = await window.gitRunnerAPI.fetchRepos();
-    icon.classList.remove('spinning');
-    text.textContent = 'Kiểm tra & Nạp tất cả Repos';
+  const res = await window.gitRunnerAPI.fetchRepos();
+  icon.classList.remove('spinning');
+  text.textContent = 'Kiểm tra & Nạp tất cả Repos';
 
-    if (res.success && res.repos) {
-      allRepos = res.repos.map(r => {
-        const repoSlug = r.nameWithOwner.replace('/', '-');
-        const repoShort = r.nameWithOwner.split('/')[1];
+  if (res.success && res.repos) {
+    allRepos = res.repos.map(r => {
+      const repoSlug = r.nameWithOwner.replace('/', '-');
+      const repoShort = r.nameWithOwner.split('/')[1];
 
-        // Kiểm tra xem đã kích hoạt chưa (qua cache hoặc local directory)
-        const isLocallyActive = savedActive.includes(r.nameWithOwner) || 
-                                localDirs.some(d => d.includes(repoShort) || d.includes(repoSlug));
+      const isLocallyActive = savedActive.includes(r.nameWithOwner) || 
+                              localDirs.some(d => d.includes(repoShort) || d.includes(repoSlug));
 
-        return {
-          name: r.nameWithOwner,
-          desc: r.description || 'Chưa có mô tả cho dự án.',
-          isPrivate: r.isPrivate,
-          updated: formatDate(r.updatedAt),
-          runnerOnline: isLocallyActive,
-          runnerName: isLocallyActive ? (r.nameWithOwner.includes('caevietnam.vn') ? 'long-local-ci' : `local-${repoSlug}`) : null
-        };
-      });
+      return {
+        name: r.nameWithOwner,
+        desc: r.description || 'Chưa có mô tả cho dự án.',
+        isPrivate: r.isPrivate,
+        updated: formatDate(r.updatedAt),
+        runnerOnline: isLocallyActive,
+        runnerName: isLocallyActive ? (r.nameWithOwner.includes('caevietnam.vn') ? 'long-local-ci' : `local-${repoSlug}`) : null
+      };
+    });
 
-      handleSearch();
-      updateStats();
+    handleSearch();
+    updateStats();
 
-      // Kiểm tra bất đồng bộ trạng thái GitHub online cho các repo
-      allRepos.forEach(repo => {
-        if (repo.runnerOnline) {
-          window.gitRunnerAPI.checkRunnerStatus(repo.name).then(status => {
-            if (status.isOnline) {
-              repo.runnerOnline = true;
-              if (status.runnerName) repo.runnerName = status.runnerName;
-              updateStats();
-              handleSearch();
-            }
-          });
-        }
-      });
+    // Đối soát online status bất đồng bộ
+    allRepos.forEach(repo => {
+      if (repo.runnerOnline) {
+        window.gitRunnerAPI.checkRunnerStatus(repo.name).then(status => {
+          if (status.isOnline) {
+            repo.runnerOnline = true;
+            if (status.runnerName) repo.runnerName = status.runnerName;
+            updateStats();
+            handleSearch();
+          }
+        });
+      }
+    });
 
-    } else {
-      alert('Lỗi nạp repos: ' + (res.error || 'Vui lòng kiểm tra đăng nhập gh CLI!'));
-    }
   } else {
-    setTimeout(() => {
-      icon.classList.remove('spinning');
-      text.textContent = 'Kiểm tra & Nạp tất cả Repos';
-      loadMockRepos();
-    }, 600);
+    console.warn('Lỗi nạp repos:', res.error);
   }
-}
-
-function loadMockRepos() {
-  allRepos = [
-    {
-      name: "buithelong-all/caevietnam.vn",
-      desc: "Cổng thông tin & bài thi CAE Vietnam Monorepo (Production Staging).",
-      isPrivate: true,
-      runnerOnline: true,
-      runnerName: "long-local-ci",
-      updated: "2 giờ trước"
-    },
-    {
-      name: "buithelong-all/git-runner-hub",
-      desc: "1-Click GitHub Actions Self-Hosted Runner Manager for Windows & macOS.",
-      isPrivate: false,
-      runnerOnline: false,
-      runnerName: null,
-      updated: "Vừa xong"
-    },
-    {
-      name: "buithelong-all/DanhTinh-Lab",
-      desc: "Dự án nghiên cứu & phát triển phòng lab Danh Tính.",
-      isPrivate: true,
-      runnerOnline: false,
-      runnerName: null,
-      updated: "Hôm nay"
-    }
-  ];
-  handleSearch();
-  updateStats();
 }
 
 function updateStats() {
-  const total = allRepos.length;
-  const online = allRepos.filter(r => r.runnerOnline).length;
-  const unconf = total - online;
+  document.getElementById('statTotalRepos').textContent = allRepos.length;
+  const onlineCount = allRepos.filter(r => r.runnerOnline).length;
+  document.getElementById('statOnlineRunners').textContent = onlineCount;
+  document.getElementById('statUnconfigured').textContent = allRepos.length - onlineCount;
 
-  document.getElementById('statTotalRepos').textContent = total;
-  document.getElementById('statOnlineRunners').textContent = online;
-  document.getElementById('statUnconfigured').textContent = unconf;
-
-  document.getElementById('countAll').textContent = total;
-  document.getElementById('countOnline').textContent = online;
-  document.getElementById('countUnconfigured').textContent = unconf;
+  document.getElementById('countAll').textContent = allRepos.length;
+  document.getElementById('countOnline').textContent = onlineCount;
+  document.getElementById('countUnconfigured').textContent = allRepos.length - onlineCount;
 }
 
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+function setFilter(type, btn) {
+  currentFilter = type;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  handleSearch();
 }
 
-function renderRepos(list) {
+function handleSearch() {
+  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+  let filtered = allRepos;
+
+  if (currentFilter === 'online') {
+    filtered = filtered.filter(r => r.runnerOnline);
+  } else if (currentFilter === 'unconfigured') {
+    filtered = filtered.filter(r => !r.runnerOnline);
+  }
+
+  if (query) {
+    filtered = filtered.filter(r => r.name.toLowerCase().includes(query) || r.desc.toLowerCase().includes(query));
+  }
+
+  renderRepos(filtered);
+}
+
+function renderRepos(repos) {
   const grid = document.getElementById('reposGrid');
   grid.innerHTML = '';
 
-  if (list.length === 0) {
-    grid.innerHTML = `<div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-dim);">Không tìm thấy repository nào phù hợp.</div>`;
+  if (repos.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-dim);">
+        Không tìm thấy repository nào phù hợp.
+      </div>
+    `;
     return;
   }
 
-  list.forEach(repo => {
+  repos.forEach(repo => {
     const card = document.createElement('div');
-    card.className = `repo-card ${repo.runnerOnline ? 'active-runner' : ''}`;
+    card.className = `repo-card ${repo.runnerOnline ? 'active' : ''}`;
 
-    const safeName = escapeHtml(repo.name);
-    const safeDesc = escapeHtml(repo.desc);
-    const safeUpdated = escapeHtml(repo.updated);
-    const safeRunnerName = escapeHtml(repo.runnerName || 'local-runner');
-    const isPrivate = repo.isPrivate;
+    const statusBadge = repo.runnerOnline 
+      ? `<span class="badge-status online"><span class="pulse-dot"></span> Runner Online</span>`
+      : `<span class="badge-status offline">Chưa kích hoạt</span>`;
+
+    const privacyBadge = repo.isPrivate
+      ? `<span class="badge-tag private">🔒 Private</span>`
+      : `<span class="badge-tag public">🌐 Public</span>`;
+
+    const actionButtons = repo.runnerOnline
+      ? `
+        <button class="btn-sm btn-ci-history" onclick="openRepoActions('${repo.name}')" title="Mở trang GitHub Actions trên trình duyệt">
+          <span>🚀</span> Lịch sử CI
+        </button>
+        <button class="btn-sm btn-icon-round" onclick="lifecycleAction('restart', '${repo.name}')" title="Khởi động lại Runner Service">
+          🔄
+        </button>
+        <button class="btn-sm btn-icon-round btn-danger-icon" onclick="lifecycleAction('detach', '${repo.name}')" title="Hủy và gỡ bỏ Runner này">
+          🗑️
+        </button>
+      `
+      : `
+        <button class="btn-sm btn-install" onclick="startSetup('${repo.name}')">
+          <span>⚡</span> Kích hoạt Local Runner
+        </button>
+      `;
 
     card.innerHTML = `
-      <div class="card-top">
+      <div class="repo-card-header">
+        <div class="repo-title-group">
+          <span class="repo-title" title="${repo.name}">${repo.name}</span>
+          ${privacyBadge}
+        </div>
+        ${statusBadge}
+      </div>
+
+      <div class="repo-desc">${repo.desc}</div>
+
+      <div class="repo-footer">
         <div class="repo-meta">
-          <div class="repo-title">
-            <span>${isPrivate ? '🔒' : '🌐'}</span>
-            <span title="${safeName}">${safeName}</span>
-          </div>
-          <div class="repo-desc">${safeDesc}</div>
+          <span>📅 ${repo.updated}</span>
+          ${repo.runnerOnline ? `<span style="color:#34d399;">⚡ ${repo.runnerName || 'Sẵn sàng'}</span>` : ''}
         </div>
-        <div style="display:flex; flex-direction:column; align-items:flex-end; gap:4px;">
-          <div class="status-pill ${repo.runnerOnline ? 'online' : 'unconfigured'}">
-            ${repo.runnerOnline ? '● Runner Online' : '○ Chưa kích hoạt'}
-          </div>
-          <span style="font-size: 10px; font-weight: 600; color: ${isPrivate ? '#10b981' : '#f59e0b'};">
-            ${isPrivate ? '✓ Private Safe' : '⚠️ Public PR Guard'}
-          </span>
+        <div class="repo-card-actions">
+          ${actionButtons}
         </div>
-      </div>
-
-      <div class="card-middle">
-        <span>🕒 ${safeUpdated}</span>
-        ${repo.runnerOnline ? `<span>⚡ <b style="color:#34d399">Đang sẵn sàng</b></span>` : ''}
-      </div>
-
-      <div class="card-bottom">
-        ${repo.runnerOnline ? `
-          <div style="display:flex; gap:6px; align-items:center;">
-            <button class="btn-secondary" onclick="openRepoActions('${safeName}')" title="Mở lịch sử GitHub Actions">Lịch sử CI</button>
-            <button class="btn-secondary" onclick="handleLifecycle('restart', '${safeName}')" title="Khởi động lại Runner Service">🔄</button>
-            <button class="btn-secondary" style="color:#ef4444;" onclick="handleLifecycle('detach', '${safeName}')" title="Gỡ bỏ Runner khỏi Repo">🗑️</button>
-          </div>
-        ` : `
-          <div style="font-size: 11px; color: var(--text-dim);">${isPrivate ? 'Private' : 'Public'}</div>
-          <button class="btn-install" onclick="setupRunner('${safeName}')">
-            <span>⚡ Gắn Local CI</span>
-          </button>
-        `}
       </div>
     `;
+
     grid.appendChild(card);
   });
 }
 
-async function handleLifecycle(action, repoName) {
+function handleScanUrl() {
+  const input = document.getElementById('repoUrlInput');
+  const val = input.value.trim();
+  if (!val) {
+    alert('Vui lòng dán link GitHub Repository (ví dụ: https://github.com/buithelong-all/DanhTinh-Lab)');
+    return;
+  }
+
+  let repoName = val.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').trim();
+  if (!repoName.includes('/')) {
+    alert('Định dạng link GitHub không hợp lệ. Ví dụ đúng: buithelong-all/DanhTinh-Lab');
+    return;
+  }
+
+  startSetup(repoName);
+}
+
+async function lifecycleAction(action, repoName) {
   if (action === 'detach') {
-    if (!confirm(`Anh có chắc chắn muốn gỡ bỏ (detach) runner của repo ${repoName} không?`)) {
-      return;
-    }
+    if (!confirm(`Bạn có chắc chắn muốn HỦY và GỠ BỎ Local Runner cho '${repoName}'?`)) return;
   }
 
   const modal = document.getElementById('setupModal');
   const term = document.getElementById('terminalLog');
   const closeBtn = document.getElementById('modalCloseBtn');
+  const title = document.getElementById('modalTitle');
+  const desc = document.getElementById('modalDesc');
 
-  document.getElementById('modalTitle').textContent = `Đang thực hiện '${action}' cho ${repoName}...`;
-  term.innerHTML = `> [Lifecycle] Bắt đầu tác vụ: ${action}...\n`;
+  title.textContent = `Điều khiển Runner: ${action.toUpperCase()}`;
+  desc.textContent = `Đang thực hiện lệnh ${action} cho ${repoName}...`;
+  term.innerHTML = `> [Lifecycle] Bắt đầu ${action} cho ${repoName}...\n`;
   closeBtn.disabled = true;
+  modal.style.display = 'flex';
   modal.classList.add('active');
 
   if (isElectron) {
     const res = await window.gitRunnerAPI.lifecycleRunner(action, repoName);
     if (res.success) {
-      term.innerHTML += `<br><b style="color:#34d399">> ✅ Tác vụ '${action}' hoàn tất thành công!</b><br>`;
+      term.innerHTML += `<br><b style="color:#34d399">> ✅ Lệnh '${action}' đã hoàn tất thành công!</b><br>`;
       if (action === 'detach') {
         const saved = getSavedActivatedRepos().filter(r => r !== repoName);
         localStorage.setItem('git_runner_activated_repos', JSON.stringify(saved));
@@ -268,83 +490,26 @@ async function handleLifecycle(action, repoName) {
         handleSearch();
       }
     } else {
-      term.innerHTML += `<br><b style="color:#ef4444">> ❌ Thất bại với mã thoát: ${res.exitCode}.</b><br>`;
+      term.innerHTML += `<br><b style="color:#ef4444">> ❌ Lỗi thực hiện lệnh '${action}' (mã: ${res.exitCode})</b><br>`;
     }
     closeBtn.disabled = false;
     closeBtn.textContent = 'Đóng';
-  } else {
-    setTimeout(() => {
-      term.innerHTML += `<b style="color:#34d399">> ✅ Tác vụ hoàn tất (Preview Mode).</b><br>`;
-      closeBtn.disabled = false;
-      closeBtn.textContent = 'Đóng';
-    }, 800);
   }
 }
 
-function setFilter(type, el) {
-  currentFilter = type;
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  el.classList.add('active');
-  handleSearch();
-}
-
-function handleSearch() {
-  const q = document.getElementById('searchInput').value.toLowerCase().trim();
-  let filtered = allRepos;
-
-  if (currentFilter === 'online') {
-    filtered = filtered.filter(r => r.runnerOnline);
-  } else if (currentFilter === 'unconfigured') {
-    filtered = filtered.filter(r => !r.runnerOnline);
-  }
-
-  if (q) {
-    filtered = filtered.filter(r => r.name.toLowerCase().includes(q) || (r.desc && r.desc.toLowerCase().includes(q)));
-  }
-
-  renderRepos(filtered);
-}
-
-function handleScanUrl() {
-  const input = document.getElementById('repoUrlInput').value.trim();
-  if (!input) {
-    alert('Vui lòng dán link GitHub repo!');
-    return;
-  }
-
-  let cleanRepo = input.replace('https://github.com/', '').replace('.git', '').replace(/\/$/, '');
-  const existing = allRepos.find(r => r.name.toLowerCase() === cleanRepo.toLowerCase());
-
-  if (existing) {
-    if (existing.runnerOnline) {
-      alert(`Repo ${cleanRepo} ĐÃ CÓ RUNNER ONLINE rồi anh! Không cần cài lại.`);
-    } else {
-      setupRunner(cleanRepo);
-    }
-  } else {
-    allRepos.unshift({
-      name: cleanRepo,
-      desc: "Repo mới nạp từ URL.",
-      isPrivate: true,
-      runnerOnline: false,
-      runnerName: null,
-      updated: "Vừa xong"
-    });
-    handleSearch();
-    updateStats();
-    setupRunner(cleanRepo);
-  }
-}
-
-async function setupRunner(repoName) {
+async function startSetup(repoName) {
   const modal = document.getElementById('setupModal');
   const term = document.getElementById('terminalLog');
   const closeBtn = document.getElementById('modalCloseBtn');
+  const title = document.getElementById('modalTitle');
+  const desc = document.getElementById('modalDesc');
 
-  document.getElementById('modalTitle').textContent = `Đang kích hoạt Local CI cho: ${repoName}`;
-  term.innerHTML = '';
+  title.textContent = `Kích hoạt Runner cho: ${repoName}`;
+  desc.textContent = `Đang thiết lập môi trường dịch vụ chạy ngầm trên máy...`;
+  term.innerHTML = `> [GitRunnerHub] Bắt đầu chuẩn bị runner cho ${repoName}...\n`;
   closeBtn.disabled = true;
-  closeBtn.textContent = 'Đang kích hoạt...';
+  closeBtn.textContent = 'Đang xử lý...';
+  modal.style.display = 'flex';
   modal.classList.add('active');
 
   if (isElectron) {
@@ -364,26 +529,13 @@ async function setupRunner(repoName) {
     }
     closeBtn.disabled = false;
     closeBtn.textContent = 'Đóng & Hoàn tất';
-  } else {
-    setTimeout(() => {
-      term.innerHTML += `> Cấu hình service systemd nền... OK.<br>`;
-      term.innerHTML += `<b style="color:#34d399">> ✅ THÀNH CÔNG! Runner đã ONLINE.</b><br>`;
-      saveActivatedRepo(repoName);
-      const target = allRepos.find(r => r.name === repoName);
-      if (target) {
-        target.runnerOnline = true;
-        target.runnerName = `local-${repoName.replace('/', '-')}`;
-      }
-      updateStats();
-      handleSearch();
-      closeBtn.disabled = false;
-      closeBtn.textContent = 'Đóng & Hoàn tất';
-    }, 1200);
   }
 }
 
 function closeModal() {
-  document.getElementById('setupModal').classList.remove('active');
+  const modal = document.getElementById('setupModal');
+  modal.style.display = 'none';
+  modal.classList.remove('active');
 }
 
 function openRepoActions(repoName) {

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:;">
   <title>GitRunnerHub — 1-Click Self-Hosted Runner Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -20,11 +20,27 @@
         <span class="brand-badge">v1.0.0</span>
       </div>
 
-      <div class="account-badge">
-        <div class="account-avatar" id="accountAvatar">L</div>
-        <div class="account-info">
-          <div class="name" id="accountName">Bùi Thế Long</div>
-          <div class="handle" id="accountHandle">@buithelong-all</div>
+      <!-- Khối Tài Khoản Động & Auth Actions [GRH-202] -->
+      <div class="account-card" id="accountCard">
+        <div class="account-badge">
+          <div class="account-avatar" id="accountAvatar">?</div>
+          <div class="account-info">
+            <div class="name" id="accountName">Đang kiểm tra...</div>
+            <div class="handle" id="accountHandle">@...</div>
+          </div>
+        </div>
+        <div class="account-actions" id="accountActions">
+          <button class="btn-account-action" id="btnSwitchAccount" onclick="openLoginModal()" title="Đổi tài khoản">
+            <span>🔄</span> Đổi tài khoản
+          </button>
+          <button class="btn-account-action btn-logout" id="btnLogout" onclick="handleLogout()" title="Đăng xuất">
+            <span>🚪</span> Đăng xuất
+          </button>
+        </div>
+        <div class="account-login-prompt" id="accountLoginPrompt" style="display: none;">
+          <button class="btn-login-trigger" onclick="openLoginModal()">
+            <span>🔑</span> Đăng nhập GitHub
+          </button>
         </div>
       </div>
 
@@ -109,8 +125,78 @@
     </div>
   </div>
 
+  <!-- Modal Đăng nhập GitHub [GRH-201..202] -->
+  <div class="modal-overlay" id="loginModal" style="display: none;">
+    <div class="modal-card auth-modal-card">
+      <div class="modal-header">
+        <div>
+          <h3>Đăng nhập GitHub vào GitRunnerHub</h3>
+          <p>Kết nối tài khoản để tự động nạp repos và cấp quyền cho Local Runner</p>
+        </div>
+        <button class="modal-close-btn" onclick="closeLoginModal()">✕</button>
+      </div>
+
+      <!-- Auth Tabs -->
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" id="tabBtnDevice" onclick="switchAuthTab('device-flow', this)">
+          🌐 Trình duyệt (Device Code)
+        </button>
+        <button class="auth-tab-btn" id="tabBtnToken" onclick="switchAuthTab('token', this)">
+          🔑 Token (PAT)
+        </button>
+        <button class="auth-tab-btn" id="tabBtnCli" onclick="switchAuthTab('gh-cli', this)">
+          💻 GitHub CLI
+        </button>
+      </div>
+
+      <!-- Tab Content: Device Flow -->
+      <div class="auth-tab-content" id="tabDeviceFlow">
+        <p class="auth-desc">Đăng nhập nhanh không cần nhập mật khẩu vào app. Chỉ cần xác nhận 1-click trên trình duyệt.</p>
+        
+        <div id="deviceFlowInitial">
+          <button class="btn-primary-action" onclick="startDeviceLogin()">
+            <span>🚀</span> Bắt đầu xác thực qua Trình duyệt
+          </button>
+        </div>
+
+        <div id="deviceFlowActive" style="display: none;" class="device-flow-box">
+          <div class="device-code-label">Nhập mã này trên trang xác thực GitHub:</div>
+          <div class="device-code-display" id="deviceUserCode">--------</div>
+          <button class="btn-copy-code" id="btnOpenDeviceUri" onclick="copyAndOpenDeviceUri()">📋 Copy Mã & Mở Trang GitHub</button>
+          <div class="device-flow-status" id="deviceFlowStatus">
+            <span class="pulse-dot"></span> Đang chờ bạn xác nhận trên trình duyệt...
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Content: PAT -->
+      <div class="auth-tab-content" id="tabToken" style="display: none;">
+        <p class="auth-desc">Nhập Personal Access Token (classic hoặc fine-grained) có quyền <code>repo</code> và <code>workflow</code>.</p>
+        <div class="pat-input-wrapper">
+          <input type="password" id="patInput" class="auth-input" placeholder="ghp_... hoặc github_pat_..." />
+          <button class="btn-primary-action" onclick="handlePatLogin()">
+            <span>✓</span> Lưu & Đăng nhập
+          </button>
+        </div>
+        <div class="auth-hint">
+          🔒 Token được mã hóa an toàn bằng hệ thống bảo vệ cấp hệ điều hành (OS SafeStorage).
+        </div>
+      </div>
+
+      <!-- Tab Content: GitHub CLI Import -->
+      <div class="auth-tab-content" id="tabGhCli" style="display: none;">
+        <p class="auth-desc">Nếu máy đã đăng nhập GitHub CLI ngoài PowerShell (<code>gh auth login</code>), bạn có thể nhập phiên ngay lập tức.</p>
+        <button class="btn-primary-action" onclick="handleGhCliImport()">
+          <span>⚡</span> Tự động nhập từ GitHub CLI
+        </button>
+      </div>
+
+      <div class="auth-error-msg" id="authErrorMsg" style="display: none;"></div>
+    </div>
+  </div>
+
   <!-- Modal Setup Live Output -->
-  <div class="modal-overlay" id="setupModal">
+  <div class="modal-overlay" id="setupModal" style="display: none;">
     <div class="modal-card">
       <h3 style="font-size: 17px;" id="modalTitle">Đang kích hoạt Local CI Runner...</h3>
       <p style="font-size: 13px; color: var(--text-muted);" id="modalDesc">Đang chuẩn bị gói runner và đăng ký service ngầm...</p>
