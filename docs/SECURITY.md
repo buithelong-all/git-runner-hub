@@ -25,7 +25,7 @@ The macOS provisioner is unchanged by this scoped patch and requires a separate 
 
 ## Lifecycle and migration
 
-Existing shared-UID runners can still be inspected and started/stopped with the legacy lifecycle path. Destructive detach of a legacy runner is **refused**: conduct a dedicated, reversible migration after checking the real service UID, process permissions, GitHub registration and workload.
+Existing shared-UID runners can still be inspected and started/stopped with the legacy lifecycle path. Destructive detach of a legacy runner is **refused**. `runner-setup-linux.sh --stage-migration` creates a digest-suffixed account, home, work directory, runner directory, name and explicit-only label alongside the legacy installation. `runner-migration-linux.sh` permits only status, cutover and rollback; it has no delete/unregister action and refuses cutover below two verified runs or while the legacy worker is busy.
 
 A new per-repo account's detach requires a repo-specific remove token via stdin; it refuses symlink/unknown-owner workspaces and does not delete local files if GitHub unregistration fails. The installer and migration helper cannot prove global process/network isolation or secure wipe.
 

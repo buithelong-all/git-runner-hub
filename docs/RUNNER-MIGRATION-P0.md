@@ -1,6 +1,6 @@
 # P0 migration playbook — per-repo GitHub runner identity
 
-**State:** READ-ONLY procedure and implementation candidate. No installed service, user, permissions, secrets or workflow has been changed on the owner's Linux/WSL host by this repository update.
+**State:** reversible side-by-side staging implementation. No installed service, user, permissions, secrets or workflow is changed until the owner separately approves the host command.
 
 ## Prerequisites and stop conditions
 
@@ -24,12 +24,19 @@ Do not mutate a host if another CI job is running, if the runner has credentials
 
 ## Controlled cutover (separate host authorization)
 
-- Stop only the exact selected legacy service when it is idle, after saving its service/config state securely. Do not run the new installer over its existing directory.
-- Select a new unique runner directory/account from --plan; provision via the reviewed installer only when the old installation's conflicting path and registration have been safely reconciled under a documented migration. Never automatically chown the old workspace from the shared account.
-- Configure GitHub registration through ephemeral input, update workflow routing only if labels changed, and validate process UID, owner/mode of directories and that repository A cannot traverse repository B's per-UID directory.
-- Check reverse access from the other repo, missing Docker socket and absence of passwordless sudo. Verify a successful same-SHA CI run from the intended runner.
-- Preserve rollback until a second run passes: stop the new service and restore the prior service/configuration if validation fails, without destroying audit evidence.
+- Generate the non-mutating stage plan with `bash scripts/runner-migration-linux.sh plan OWNER/REPO`. Record the exact new account, runner name, label and paths.
+- Before staging, back up the legacy systemd unit and the legacy runner's `.runner`, `.credentials` and `.credentials_rsaparams` files to an administrator-controlled `0700` directory. Do not print or attach their contents. Record owner/mode and a checksum manifest. This backup is the rollback safety copy; staging does not modify it.
+- Obtain a short-lived registration token and pass it only on stdin: `gh api --method POST repos/OWNER/REPO/actions/runners/registration-token --jq .token | sudo bash scripts/runner-setup-linux.sh --stage-migration OWNER/REPO -`. The explicit migration mode requires a real legacy directory, creates only digest-suffixed paths and registers a distinct runner with only its `grh-<digest>` label. It never chowns, replaces, stops or removes the legacy runner.
+- Repeating a completed stage is non-mutating: validated account/path/mode/config state returns `MIGRATION_ALREADY_STAGED`. Partial or unexpected state fails closed for manual inspection.
+- Route a verification workflow explicitly to `[grh-<digest>]`; do not add generic labels to the staged runner. Validate process UID, `0700` owners/modes and bidirectional cross-UID denial before treating the host gate as passed.
+- Run two successful CI jobs for the exact candidate SHA and record run IDs, runner name and label. A queued run, a run on the legacy name, or a different SHA does not count.
+- Only after those two runs and a fresh GitHub `busy=false` check, use `sudo bash scripts/runner-migration-linux.sh cutover OWNER/REPO --verified-runs 2`. The script also refuses a locally observed `Runner.Worker`; it stops only the legacy service and deletes nothing.
+- Rollback is `sudo bash scripts/runner-migration-linux.sh rollback OWNER/REPO`. It refuses a busy staged runner, stops the staged service, starts the preserved legacy service, and attempts to restart staging if legacy start fails.
 - Only after owner confirmation perform cleanup of the old shared service, registration and stale files. No destructive migration on initial app setup.
+
+### Required approval packet per repository
+
+Before any sudo mutation, present: the exact repository; commands; new UID/name/label/paths; legacy service and backup destination; expected changes; checks for idle state; rollback command; and the statement that neither runner is unregistered or deleted. Approval for one repository does not authorize the next repository.
 
 ## Execution-level acceptance
 

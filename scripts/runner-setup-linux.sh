@@ -5,9 +5,13 @@
 # Existing runner installations are never overwritten.
 set -euo pipefail
 umask 077
-usage() { echo "Usage: runner-setup-linux.sh [--plan] OWNER/REPO [-]" >&2; exit 2; }
+usage() { echo "Usage: runner-setup-linux.sh [--plan|--plan-migration|--stage-migration] OWNER/REPO [-]" >&2; exit 2; }
 MODE=provision
-if [[ $# -gt 0 && "$1" == "--plan" ]]; then MODE=plan; shift; fi
+case "${1:-}" in
+  --plan) MODE=plan; shift ;;
+  --plan-migration) MODE=plan-migration; shift ;;
+  --stage-migration) MODE=stage-migration; shift ;;
+esac
 [[ $# -ge 1 && $# -le 2 ]] || usage
 TARGET_REPO="$1"
 # Shell metacharacters, whitespace, parent traversal and extra slashes are forbidden.
@@ -24,26 +28,52 @@ WORK_DIR="/var/lib/gitrunnerhub/work-$SLUG-$DIGEST"
 HOME_DIR="/var/lib/gitrunnerhub/home-$SLUG-$DIGEST"
 RUNNER_NAME="local-$SLUG"
 LABEL_NAME="$SLUG-local"
+DEFAULT_LABELS=true
+LEGACY_PRESERVED=false
+if [[ "$MODE" == "plan-migration" || "$MODE" == "stage-migration" ]]; then
+  RUNNER_NAME="local-$SLUG-isolated-$DIGEST"
+  LABEL_NAME="grh-$DIGEST"
+  DEFAULT_LABELS=false
+  LEGACY_PRESERVED=true
+fi
 VERSION="2.338.0"
 CHECKSUM_X64="7ea4d6350325d975a507851d7fe31d17d59850cfdf15bfbc1309d43d1a8e104d"
-if [[ "$MODE" == "plan" ]]; then
-  printf '{"repository":"%s","service_user":"%s","runner_dir":"%s","work_dir":"%s","home_dir":"%s","runner_name":"%s","legacy_overwrite":false}\n' \
-    "$TARGET_REPO" "$SERVICE_USER" "$RUNNER_DIR" "$WORK_DIR" "$HOME_DIR" "$RUNNER_NAME"
+if [[ "$MODE" == "plan" || "$MODE" == "plan-migration" ]]; then
+  PLAN_MODE="new-install"
+  [[ "$MODE" == "plan-migration" ]] && PLAN_MODE="migration-stage"
+  printf '{"repository":"%s","mode":"%s","service_user":"%s","runner_dir":"%s","work_dir":"%s","home_dir":"%s","runner_name":"%s","runner_label":"%s","default_labels":%s,"path_mode":"0700","legacy_runner_dir":"%s","legacy_overwrite":false,"legacy_preserved":%s}\n' \
+    "$TARGET_REPO" "$PLAN_MODE" "$SERVICE_USER" "$RUNNER_DIR" "$WORK_DIR" "$HOME_DIR" "$RUNNER_NAME" "$LABEL_NAME" "$DEFAULT_LABELS" "$LEGACY_RUNNER_DIR" "$LEGACY_PRESERVED"
   exit 0
 fi
 [[ "$EUID" -eq 0 ]] || { echo "REQUIRES_ROOT_FOR_NEW_INSTALL" >&2; exit 3; }
-[[ $# -eq 2 && "$2" == "-" ]] || { echo "TOKEN_MUST_BE_STDIN; never put a registration token in command arguments" >&2; exit 3; }
-IFS= read -r REG_TOKEN || { echo "MISSING_REGISTRATION_TOKEN" >&2; exit 3; }
-[[ "$REG_TOKEN" =~ ^[A-Za-z0-9_-]{15,200}$ ]] || { echo "INVALID_REGISTRATION_TOKEN" >&2; exit 3; }
 # Fail closed before mutation: legacy and existing installs require a separate
 # host-verified migration, never a silent chown or service replacement.
-if [[ -e "$LEGACY_RUNNER_DIR" || -L "$LEGACY_RUNNER_DIR" ||
-      -e "$RUNNER_DIR" || -L "$RUNNER_DIR" || -e "$WORK_DIR" || -L "$WORK_DIR" ]]; then
+if [[ "$MODE" == "provision" && ( -e "$LEGACY_RUNNER_DIR" || -L "$LEGACY_RUNNER_DIR" ) ]]; then
   echo "EXISTING_RUNNER_DETECTED: inspect the host and migrate explicitly; no overwrite" >&2; exit 4
+fi
+if [[ "$MODE" == "stage-migration" && ( ! -d "$LEGACY_RUNNER_DIR" || -L "$LEGACY_RUNNER_DIR" ) ]]; then
+  echo "LEGACY_RUNNER_NOT_FOUND_OR_SYMLINK: staging requires the preserved legacy installation" >&2; exit 4
+fi
+if [[ -e "$RUNNER_DIR" || -L "$RUNNER_DIR" || -e "$WORK_DIR" || -L "$WORK_DIR" || -e "$HOME_DIR" || -L "$HOME_DIR" ]]; then
+  if [[ "$MODE" == "stage-migration" && -d "$RUNNER_DIR" && ! -L "$RUNNER_DIR" &&
+        -d "$WORK_DIR" && ! -L "$WORK_DIR" && -d "$HOME_DIR" && ! -L "$HOME_DIR" &&
+        -f "$RUNNER_DIR/.runner" && -f "$RUNNER_DIR/.service" && -x "$RUNNER_DIR/svc.sh" ]] &&
+       id "$SERVICE_USER" >/dev/null 2>&1 &&
+       [[ "$(stat -c '%U:%a' "$RUNNER_DIR")" == "$SERVICE_USER:700" ]] &&
+       [[ "$(stat -c '%U:%a' "$WORK_DIR")" == "$SERVICE_USER:700" ]] &&
+       [[ "$(stat -c '%U:%a' "$HOME_DIR")" == "$SERVICE_USER:700" ]] &&
+       (cd "$RUNNER_DIR" && ./svc.sh status >/dev/null 2>&1); then
+    echo "MIGRATION_ALREADY_STAGED: verified existing dedicated paths; no mutation"
+    exit 0
+  fi
+  echo "PARTIAL_OR_EXISTING_STAGED_STATE: refusing overwrite" >&2; exit 4
 fi
 if id "$SERVICE_USER" >/dev/null 2>&1; then
   echo "SERVICE_IDENTITY_EXISTS: inspect before reusing an existing UID" >&2; exit 4
 fi
+[[ $# -eq 2 && "$2" == "-" ]] || { echo "TOKEN_MUST_BE_STDIN; never put a registration token in command arguments" >&2; exit 3; }
+IFS= read -r REG_TOKEN || { echo "MISSING_REGISTRATION_TOKEN" >&2; exit 3; }
+[[ "$REG_TOKEN" =~ ^[A-Za-z0-9_-]{15,200}$ ]] || { echo "INVALID_REGISTRATION_TOKEN" >&2; exit 3; }
 for cmd in sha256sum runuser curl useradd install tar; do
   command -v "$cmd" >/dev/null || { echo "MISSING_TOOL: $cmd" >&2; exit 5; }
 done
@@ -66,12 +96,20 @@ chmod 0700 "$RUNNER_DIR" "$WORK_DIR" "$HOME_DIR"
 # No --replace: never supersede another runner registration implicitly.
 (
   cd "$RUNNER_DIR"
-  runuser -u "$SERVICE_USER" -- env HOME="$HOME_DIR" ./config.sh \
-    --url "https://github.com/$TARGET_REPO" --token "$REG_TOKEN" \
-    --name "$RUNNER_NAME" --labels "self-hosted,Linux,X64,$LABEL_NAME" \
-    --work "$WORK_DIR" --unattended
+  if [[ "$MODE" == "stage-migration" ]]; then
+    runuser -u "$SERVICE_USER" -- env HOME="$HOME_DIR" ./config.sh \
+      --url "https://github.com/$TARGET_REPO" --token "$REG_TOKEN" \
+      --name "$RUNNER_NAME" --labels "$LABEL_NAME" --no-default-labels \
+      --work "$WORK_DIR" --unattended
+  else
+    runuser -u "$SERVICE_USER" -- env HOME="$HOME_DIR" ./config.sh \
+      --url "https://github.com/$TARGET_REPO" --token "$REG_TOKEN" \
+      --name "$RUNNER_NAME" --labels "self-hosted,Linux,X64,$LABEL_NAME" \
+      --work "$WORK_DIR" --unattended
+  fi
   ./svc.sh install "$SERVICE_USER"
   ./svc.sh start
 )
 echo "RUNNER_INSTALLED: $RUNNER_NAME, dedicated unprivileged account $SERVICE_USER"
+[[ "$MODE" == "stage-migration" ]] && echo "MIGRATION_STAGED: legacy runner preserved; route only explicit label $LABEL_NAME"
 echo "NEXT: verify online status AND a real workflow run at an exact SHA"

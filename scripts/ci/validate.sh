@@ -6,13 +6,24 @@
 set -euo pipefail
 
 CI_MODE=0
+LOCK_PROBE=0
 for arg in "$@"; do
   if [[ "$arg" == "--ci" ]]; then
     CI_MODE=1
+  elif [[ "$arg" == "--lock-probe" ]]; then
+    LOCK_PROBE=1
   fi
 done
 
-LOCK_FILE="/tmp/git_runner_hub_ci.lock"
+SELF_UID="$(id -u)"
+LOCK_ROOT="${XDG_RUNTIME_DIR:-/tmp/gitrunnerhub-$SELF_UID}"
+if [[ ! -e "$LOCK_ROOT" ]]; then
+  install -d -m 0700 "$LOCK_ROOT"
+fi
+[[ -d "$LOCK_ROOT" && ! -L "$LOCK_ROOT" ]] || { echo "❌ Unsafe CI lock directory" >&2; exit 1; }
+[[ "$(stat -c %u "$LOCK_ROOT")" == "$SELF_UID" ]] || { echo "❌ CI lock directory owner mismatch" >&2; exit 1; }
+[[ "$(stat -c %a "$LOCK_ROOT")" == "700" ]] || { echo "❌ CI lock directory must be mode 0700" >&2; exit 1; }
+LOCK_FILE="$LOCK_ROOT/git_runner_hub_ci_${SELF_UID}.lock"
 LOG_DIR=".ci-logs"
 mkdir -p "$LOG_DIR"
 RUN_ID=$(date +%Y%m%d_%H%M%S)
@@ -26,12 +37,19 @@ echo "=========================================================="
 
 # 1. Bounded Concurrency qua Linux kernel flock nếu có
 if command -v flock &>/dev/null; then
-  exec 200>"$LOCK_FILE"
-  chmod 666 "$LOCK_FILE" 2>/dev/null || true
+  (umask 077; : >>"$LOCK_FILE")
+  chmod 0600 "$LOCK_FILE"
+  exec 200>>"$LOCK_FILE"
   if ! flock -n 200; then
     echo "⚠️ Có tiến trình CI khác đang chạy. Đang chờ mở khóa..."
     flock -w 600 200 || { echo "❌ Lỗi: Timeout chờ giải phóng lock!"; exit 1; }
   fi
+fi
+
+if [[ $LOCK_PROBE -eq 1 ]]; then
+  printf 'CI_LOCK_PATH=%s\n' "$LOCK_FILE"
+  printf 'CI_LOCK_MODE=%s\n' "$(stat -c %a "$LOCK_FILE")"
+  exit 0
 fi
 
 # 2. Thu thập thông tin phiên bản & Git state
