@@ -34,9 +34,11 @@ function saveActivatedRepo(repoName) {
 // ==============================================================================
 
 async function init() {
+  console.log('[Renderer] Starting init()... isElectron:', isElectron);
   if (isElectron) {
     try {
       const sysInfo = await window.gitRunnerAPI.getSystemInfo();
+      console.log('[Renderer] System info received:', JSON.stringify(sysInfo));
       document.getElementById('statOS').textContent = sysInfo.platform;
       document.getElementById('statRam').textContent = `${sysInfo.freeMem} GB / ${sysInfo.totalMem} GB`;
     } catch (e) {
@@ -53,7 +55,9 @@ async function init() {
     });
 
     // Nạp hồ sơ người dùng
+    console.log('[Renderer] Loading account profile...');
     await loadAccountProfile();
+    console.log('[Renderer] init() completed.');
   } else {
     document.getElementById('statOS').textContent = 'Web Preview Mode';
     document.getElementById('statRam').textContent = '11.4 GB / 15.6 GB';

@@ -14,10 +14,27 @@ const {
   clearAuthToken
 } = require('../core/auth');
 
+function logStartup(msg) {
+  const line = `[${new Date().toISOString()}] ${msg}\n`;
+  try {
+    fs.appendFileSync('D:\\Antigravity\\git-runner-hub\\debug_startup.log', line);
+  } catch (e) {}
+  console.log(msg);
+}
+
+process.on('uncaughtException', (err) => {
+  logStartup(`uncaughtException: ${err.stack || err.message}`);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logStartup(`unhandledRejection: ${reason}`);
+});
+
 let mainWindow;
 let currentAuth = null;
 
 function createWindow() {
+  logStartup('Creating BrowserWindow...');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 780,
@@ -25,6 +42,7 @@ function createWindow() {
     minHeight: 640,
     backgroundColor: '#070a13',
     title: 'GitRunnerHub',
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -32,21 +50,72 @@ function createWindow() {
     }
   });
 
-  mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  const htmlPath = path.join(__dirname, '../renderer/index.html');
+  logStartup(`Loading file: ${htmlPath}`);
+
+  mainWindow.loadFile(htmlPath).then(() => {
+    logStartup('loadFile resolved successfully');
+  }).catch((err) => {
+    logStartup(`loadFile error: ${err.message}`);
+  });
+
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    logStartup(`[Renderer ${level}] ${message} (${sourceId}:${line})`);
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    logStartup('webContents did-finish-load');
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_, errCode, errDesc) => {
+    logStartup(`webContents did-fail-load: ${errCode} - ${errDesc}`);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (_, details) => {
+    logStartup(`webContents render-process-gone: ${JSON.stringify(details)}`);
+  });
+
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.center();
+  mainWindow.show();
+  mainWindow.focus();
 
   mainWindow.once('ready-to-show', () => {
+    logStartup('mainWindow ready-to-show fired');
+    try {
+      const bounds = mainWindow.getBounds();
+      const handleBuf = mainWindow.getNativeWindowHandle();
+      const handle = process.platform === 'win32' ? (handleBuf.length >= 8 ? handleBuf.readBigInt64LE(0) : handleBuf.readInt32LE(0)) : 0;
+      logStartup(`Window HWND: ${handle} (0x${handle.toString(16)})`);
+      logStartup(`Window Title: "${mainWindow.getTitle()}"`);
+      logStartup(`Window Bounds: ${JSON.stringify(bounds)}`);
+      logStartup(`Window isVisible: ${mainWindow.isVisible()}`);
+      logStartup(`Window isMinimized: ${mainWindow.isMinimized()}`);
+    } catch (err) {
+      logStartup(`Error reading window properties: ${err.message}`);
+    }
+    mainWindow.center();
+    mainWindow.setAlwaysOnTop(true);
     mainWindow.show();
     mainWindow.focus();
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setAlwaysOnTop(false);
+      }
+    }, 1500);
   });
 }
 
 app.whenReady().then(() => {
+  logStartup('app.whenReady fired');
   // Load saved session on startup
   try {
-    currentAuth = loadAuthToken(app.getPath('userData'), safeStorage);
+    const userData = app.getPath('userData');
+    logStartup(`userData path: ${userData}`);
+    currentAuth = loadAuthToken(userData, safeStorage);
+    logStartup(`currentAuth loaded: ${currentAuth ? 'found' : 'none'}`);
   } catch (e) {
-    console.warn('Cannot load stored auth:', e.message);
+    logStartup(`Cannot load stored auth: ${e.message}`);
   }
 
   createWindow();
@@ -57,6 +126,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+  logStartup('window-all-closed fired');
   if (process.platform !== 'darwin') app.quit();
 });
 

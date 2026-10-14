@@ -200,6 +200,14 @@ async function pollDeviceFlow(deviceCode, clientId = GITHUB_CLIENT_ID) {
  * Lưu trữ token an toàn (SafeStorage hoặc file mã hóa)
  */
 function saveAuthToken(userDataDir, token, user, safeStorage = null) {
+  try {
+    if (!fs.existsSync(userDataDir)) {
+      fs.mkdirSync(userDataDir, { recursive: true });
+    }
+  } catch (e) {
+    console.warn('Cannot create userData dir:', e.message);
+  }
+
   const filePath = path.join(userDataDir, 'auth-session.json');
   let tokenData = token;
   let isEncrypted = false;

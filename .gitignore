@@ -5,3 +5,5 @@ dist/
 .env
 .runner
 .credentials
+.asar_staging/
+.temp_user_data/
