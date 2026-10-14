@@ -58,8 +58,8 @@ test('Secret Redaction (GRH-155)', () => {
 
 test('Public vs Private Repo Security Classification (GRH-150..152)', () => {
   const priv = classifyRepoSecurity(true);
-  assert.equal(priv.status, 'SAFE');
-  assert.equal(priv.allowForkPRs, true);
+  assert.equal(priv.status, 'WARNING');
+  assert.equal(priv.allowForkPRs, false);
 
   const pub = classifyRepoSecurity(false);
   assert.equal(pub.status, 'WARNING');

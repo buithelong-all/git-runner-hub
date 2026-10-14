@@ -30,10 +30,10 @@ function redactSecrets(text) {
 function classifyRepoSecurity(isPrivate) {
   if (isPrivate) {
     return {
-      status: 'SAFE',
-      level: 'low',
-      allowForkPRs: true,
-      message: 'Private repository: Quyền truy cập mã nguồn được kiểm soát nội bộ.'
+      status: 'WARNING',
+      level: 'medium',
+      allowForkPRs: false,
+      message: 'Private repository does not make PR code trusted; require authorized reviewer on persistent runners.'
     };
   }
 

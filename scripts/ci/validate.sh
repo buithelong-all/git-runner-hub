@@ -49,7 +49,7 @@ echo "🛠️  Node: $(node -v 2>/dev/null || echo 'none')"
 
 # 3. Thực thi kiểm thử
 echo "🧪 Đang chạy Unit Tests..."
-if node --test test/**/*.test.js 2>&1 | tee "$LOG_FILE"; then
+if node --test test/*.test.js 2>&1 | tee "$LOG_FILE"; then
   echo "=========================================================="
   echo "✅ VALIDATION PASSED (100% Tests Green)"
   echo "=========================================================="

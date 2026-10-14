@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { exec, spawn } = require('child_process');
 const os = require('os');
+const { isValidRepo } = require('../core/repo');
 
 let mainWindow;
 
@@ -100,6 +101,7 @@ ipcMain.handle('app:get-local-runners', async () => {
 
 // IPC Handler: Kiểm tra trạng thái Runner của 1 repo trên GitHub
 ipcMain.handle('app:check-runner-status', async (_, repoFullName) => {
+  if (!isValidRepo(repoFullName)) return { hasRunner: false, isOnline: false, runners: [] };
   return new Promise((resolve) => {
     const cmd = `gh api "repos/${repoFullName}/actions/runners" --jq '.runners[] | {id, name, status, busy}'`;
     exec(cmd, (err, stdout) => {
@@ -125,6 +127,7 @@ ipcMain.handle('app:check-runner-status', async (_, repoFullName) => {
 
 // IPC Handler: Thiết lập Runner (1-Click Setup) — Độc lập với ASAR
 ipcMain.handle('app:setup-runner', async (event, repoFullName) => {
+  if (!isValidRepo(repoFullName)) return { success: false, exitCode: 2, error: 'INVALID_REPOSITORY' };
   const isWindows = process.platform === 'win32';
   const isMac = process.platform === 'darwin';
 
@@ -147,7 +150,7 @@ ipcMain.handle('app:setup-runner', async (event, repoFullName) => {
     return { success: false, exitCode: 1 };
   }
 
-  event.sender.send('runner:log', `> [2/4] Token hợp lệ: ${regToken.substring(0, 6)}******. Đang nạp script cài đặt...\n`);
+  event.sender.send('runner:log', `> [2/4] Đã lấy registration token (không ghi log token). Đang nạp script cài đặt...\n`);
 
   // Bước 2: Đọc nội dung script bằng Node fs (hoạt động hoàn hảo cả dev lẫn trong packaged app.asar)
   const scriptFileName = isMac ? 'runner-setup-mac.sh' : 'runner-setup-linux.sh';
@@ -164,7 +167,7 @@ ipcMain.handle('app:setup-runner', async (event, repoFullName) => {
   return new Promise((resolve) => {
     if (isWindows) {
       // Viết script sang /tmp trên WSL bằng stdin để tránh hoàn toàn lỗi asar file path
-      const writeProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '-c', 'cat > /tmp/git-runner-setup.sh && chmod +x /tmp/git-runner-setup.sh']);
+      const writeProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '-c', 'install -d -m 0700 /run/gitrunnerhub && cat > /run/gitrunnerhub/runner-setup.sh && chmod 0700 /run/gitrunnerhub/runner-setup.sh']);
       writeProc.stdin.write(scriptContent);
       writeProc.stdin.end();
 
@@ -176,7 +179,8 @@ ipcMain.handle('app:setup-runner', async (event, repoFullName) => {
 
         event.sender.send('runner:log', `> [3/4] Đang thực thi cài đặt runner trong WSL2 Ubuntu...\n`);
 
-        const execProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '/tmp/git-runner-setup.sh', repoFullName, regToken]);
+        const execProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '/run/gitrunnerhub/runner-setup.sh', repoFullName, '-']);
+        execProc.stdin.end(regToken + '\n');
 
         execProc.stdout.on('data', (d) => event.sender.send('runner:log', d.toString()));
         execProc.stderr.on('data', (d) => event.sender.send('runner:log', d.toString()));
@@ -191,7 +195,8 @@ ipcMain.handle('app:setup-runner', async (event, repoFullName) => {
       fs.writeFileSync(tmpPath, scriptContent, { mode: 0o755 });
 
       event.sender.send('runner:log', `> [3/4] Đang thực thi cấu hình runner native...\n`);
-      const execProc = spawn('bash', [tmpPath, repoFullName, regToken]);
+      const execProc = isMac ? spawn('bash', [tmpPath, repoFullName, regToken]) : spawn('bash', [tmpPath, repoFullName, '-']);
+      if (!isMac) execProc.stdin.end(regToken + '\n');
 
       execProc.stdout.on('data', (d) => event.sender.send('runner:log', d.toString()));
       execProc.stderr.on('data', (d) => event.sender.send('runner:log', d.toString()));
@@ -212,6 +217,9 @@ ipcMain.handle('app:open-external', async (_, url) => {
 
 // IPC Handler: Điều khiển Lifecycle Runner (status, start, stop, restart, detach) [GRH-174]
 ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) => {
+  if (!isValidRepo(repoFullName) || !['status', 'start', 'stop', 'restart', 'detach'].includes(action)) {
+    return { success: false, exitCode: 2, error: 'INVALID_REPOSITORY_OR_ACTION' };
+  }
   const isWindows = process.platform === 'win32';
   const isMac = process.platform === 'darwin';
 
@@ -241,7 +249,7 @@ ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) =
 
   return new Promise((resolve) => {
     if (isWindows) {
-      const writeProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '-c', 'cat > /tmp/git-runner-lifecycle.sh && chmod +x /tmp/git-runner-lifecycle.sh']);
+      const writeProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '-c', 'install -d -m 0700 /run/gitrunnerhub && cat > /run/gitrunnerhub/runner-lifecycle.sh && chmod 0700 /run/gitrunnerhub/runner-lifecycle.sh']);
       writeProc.stdin.write(scriptContent);
       writeProc.stdin.end();
 
@@ -251,7 +259,8 @@ ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) =
           return resolve({ success: false, exitCode: writeCode });
         }
 
-        const execProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '/tmp/git-runner-lifecycle.sh', action, repoFullName, removeToken]);
+        const execProc = spawn('wsl.exe', ['-d', 'Ubuntu', '-u', 'root', '--exec', 'bash', '/run/gitrunnerhub/runner-lifecycle.sh', action, repoFullName, action === 'detach' ? '-' : '']);
+        execProc.stdin.end(action === 'detach' ? removeToken + '\n' : '');
 
         execProc.stdout.on('data', (d) => event.sender.send('runner:log', d.toString()));
         execProc.stderr.on('data', (d) => event.sender.send('runner:log', d.toString()));
@@ -263,7 +272,8 @@ ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) =
     } else {
       const tmpPath = '/tmp/git-runner-lifecycle.sh';
       fs.writeFileSync(tmpPath, scriptContent, { mode: 0o755 });
-      const execProc = spawn('bash', [tmpPath, action, repoFullName, removeToken]);
+      const execProc = isMac ? spawn('bash', [tmpPath, action, repoFullName, removeToken]) : spawn('bash', [tmpPath, action, repoFullName, action === 'detach' ? '-' : '']);
+      if (!isMac) execProc.stdin.end(action === 'detach' ? removeToken + '\n' : '');
 
       execProc.stdout.on('data', (d) => event.sender.send('runner:log', d.toString()));
       execProc.stderr.on('data', (d) => event.sender.send('runner:log', d.toString()));
