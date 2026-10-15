@@ -37,7 +37,7 @@ if [[ "$MODE" == "plan-migration" || "$MODE" == "stage-migration" ]]; then
   LEGACY_PRESERVED=true
 fi
 VERSION="2.338.0"
-CHECKSUM_X64="7ea4d6350325d975a507851d7fe31d17d59850cfdf15bfbc1309d43d1a8e104d"
+CHECKSUM_X64="af4b794c1bc41d73d40535e3fe092a39f9679cd8d965954c2aca25a05ca41d32"
 if [[ "$MODE" == "plan" || "$MODE" == "plan-migration" ]]; then
   PLAN_MODE="new-install"
   [[ "$MODE" == "plan-migration" ]] && PLAN_MODE="migration-stage"

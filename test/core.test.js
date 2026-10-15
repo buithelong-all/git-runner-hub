@@ -76,7 +76,8 @@ test('Platform & Architecture Detection (GRH-120)', () => {
 test('Runner Lifecycle & Checksums (GRH-125..128)', () => {
   const { getRunnerChecksum, getServiceUnitName, parseRunnerList } = require('../src/core/runner');
   
-  assert.equal(getRunnerChecksum('linux', 'x64'), '7ea4d6350325d975a507851d7fe31d17d59850cfdf15bfbc1309d43d1a8e104d');
+  // actions/runner v2.338.0 release asset digest, verified through GitHub API.
+  assert.equal(getRunnerChecksum('linux', 'x64'), 'af4b794c1bc41d73d40535e3fe092a39f9679cd8d965954c2aca25a05ca41d32');
   assert.equal(getRunnerChecksum('macos', 'arm64'), 'a6e3557e2df283bc486adbc4ce42ec5304192b02787e9c3cf0c1ea354bbbe5ea');
   assert.equal(getRunnerChecksum('invalid', 'arch'), null);
 
