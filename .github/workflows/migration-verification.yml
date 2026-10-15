@@ -1,0 +1,46 @@
+name: Isolated Runner Verification
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: isolated-verification-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [grh-3605dc3bbe4d]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify exact source and host boundary
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          OBSERVED_RUNNER: ${{ runner.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$OBSERVED_RUNNER" = local-buithelong-all-git-runner-hub-isolated-3605dc3bbe4d
+          test "$(id -un)" = ghr-3605dc3bbe4d
+          test "$(id -u)" != 0
+          for dir in /opt/actions-runner-buithelong-all-git-runner-hub-3605dc3bbe4d /var/lib/gitrunnerhub/home-buithelong-all-git-runner-hub-3605dc3bbe4d /var/lib/gitrunnerhub/work-buithelong-all-git-runner-hub-3605dc3bbe4d; do
+            test ! -L "$dir"
+            test "$(stat -c %u "$dir")" = "$(id -u)"
+            test "$(stat -c %a "$dir")" = 700
+          done
+          for file in /opt/actions-runner/.credentials /opt/actions-runner-buithelong-all-DanhTinh-Lab/.credentials; do
+            if test -r "$file"; then echo CROSS_REPO_CREDENTIAL_READ_ALLOWED >&2; exit 1; fi
+          done
+          test ! -x /home/actions-runner/work-buithelong-all-DanhTinh-Lab
+          if sudo -n -l >/dev/null 2>&1; then echo UNEXPECTED_SUDO_PRIVILEGE >&2; exit 1; fi
+          printf 'SOURCE_SHA=%s\nRUNNER_NAME=%s\n' "$EXPECTED_SHA" "$OBSERVED_RUNNER"
+          id
+      - name: Run validation
+        run: bash scripts/ci/validate.sh --ci
