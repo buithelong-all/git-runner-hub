@@ -106,7 +106,7 @@
       <div class="controls-row">
         <div class="search-box">
           <span>🔍</span>
-          <input type="text" id="searchInput" placeholder="Tìm kiếm nhanh tên repository..." oninput="handleSearch()">
+          <input type="text" id="searchInput" placeholder="🔍 Lọc dự án theo tên (ví dụ: DanhTinh-Lab, cae...)" oninput="handleSearch()">
         </div>
 
         <div class="filter-tabs">
@@ -138,20 +138,48 @@
 
       <!-- Auth Tabs -->
       <div class="auth-tabs">
-        <button class="auth-tab-btn active" id="tabBtnDevice" onclick="switchAuthTab('device-flow', this)">
-          🌐 Trình duyệt (Device Code)
-        </button>
-        <button class="auth-tab-btn" id="tabBtnToken" onclick="switchAuthTab('token', this)">
-          🔑 Token (PAT)
+        <button class="auth-tab-btn active" id="tabBtnToken" onclick="switchAuthTab('token', this)">
+          🔑 Token (PAT - Khuyên dùng)
         </button>
         <button class="auth-tab-btn" id="tabBtnCli" onclick="switchAuthTab('gh-cli', this)">
-          💻 GitHub CLI
+          💻 GitHub CLI (1-Click)
+        </button>
+        <button class="auth-tab-btn" id="tabBtnDevice" onclick="switchAuthTab('device-flow', this)">
+          🌐 Trình duyệt (OAuth)
+        </button>
+      </div>
+
+      <!-- Tab Content: PAT (Khuyên dùng) -->
+      <div class="auth-tab-content" id="tabToken" style="display: flex;">
+        <p class="auth-desc">Nhập <b>Personal Access Token (PAT)</b> của GitHub có quyền <code>repo</code> và <code>workflow</code>.</p>
+        
+        <a href="https://github.com/settings/tokens/new?scopes=repo,workflow,read:org&description=GitRunnerHub" target="_blank" style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 9px 14px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 8px; color: #38bdf8; font-size: 12.5px; text-decoration: none; font-weight: 500; transition: all 0.2s ease;">
+          <span>🔗 Bấm vào đây để tạo nhanh Token trên GitHub</span>
+          <span style="font-size: 11px; opacity: 0.8;">(Tự động tick sẵn quyền repo & workflow) ↗</span>
+        </a>
+
+        <div class="pat-input-wrapper">
+          <input type="password" id="patInput" class="auth-input" placeholder="Dán token bắt đầu bằng ghp_... hoặc github_pat_..." />
+          <button class="btn-primary-action" onclick="handlePatLogin()">
+            <span>✓</span> Lưu & Đăng nhập
+          </button>
+        </div>
+        <div class="auth-hint" style="font-size: 11.5px; color: var(--text-dim); line-height: 1.5; margin-top: 10px;">
+          ⚠️ <b>Quan trọng:</b> Đây là <b>Personal Access Token (PAT)</b>, <u>không phải</u> mật khẩu tài khoản (GitHub đã ngừng nhận mật khẩu thường từ 2021). Sau khi tạo trên GitHub, bạn chỉ cần copy chuỗi <code>ghp_...</code> dán vào đây.
+        </div>
+      </div>
+
+      <!-- Tab Content: GitHub CLI Import -->
+      <div class="auth-tab-content" id="tabGhCli" style="display: none;">
+        <p class="auth-desc">Nếu máy tính của bạn đã đăng nhập GitHub CLI ngoài PowerShell / Terminal (<code>gh auth login</code>), bạn có thể nhập phiên ngay lập tức.</p>
+        <button class="btn-primary-action" onclick="handleGhCliImport()">
+          <span>⚡</span> Tự động nhập từ GitHub CLI
         </button>
       </div>
 
       <!-- Tab Content: Device Flow -->
-      <div class="auth-tab-content" id="tabDeviceFlow">
-        <p class="auth-desc">Đăng nhập nhanh không cần nhập mật khẩu vào app. Chỉ cần xác nhận 1-click trên trình duyệt.</p>
+      <div class="auth-tab-content" id="tabDeviceFlow" style="display: none;">
+        <p class="auth-desc">Đăng nhập ủy quyền qua thiết bị OAuth. (Yêu cầu cấu hình OAuth App trên GitHub).</p>
         
         <div id="deviceFlowInitial">
           <button class="btn-primary-action" onclick="startDeviceLogin()">
@@ -167,28 +195,6 @@
             <span class="pulse-dot"></span> Đang chờ bạn xác nhận trên trình duyệt...
           </div>
         </div>
-      </div>
-
-      <!-- Tab Content: PAT -->
-      <div class="auth-tab-content" id="tabToken" style="display: none;">
-        <p class="auth-desc">Nhập Personal Access Token (classic hoặc fine-grained) có quyền <code>repo</code> và <code>workflow</code>.</p>
-        <div class="pat-input-wrapper">
-          <input type="password" id="patInput" class="auth-input" placeholder="ghp_... hoặc github_pat_..." />
-          <button class="btn-primary-action" onclick="handlePatLogin()">
-            <span>✓</span> Lưu & Đăng nhập
-          </button>
-        </div>
-        <div class="auth-hint">
-          🔒 Token được mã hóa an toàn bằng hệ thống bảo vệ cấp hệ điều hành (OS SafeStorage).
-        </div>
-      </div>
-
-      <!-- Tab Content: GitHub CLI Import -->
-      <div class="auth-tab-content" id="tabGhCli" style="display: none;">
-        <p class="auth-desc">Nếu máy đã đăng nhập GitHub CLI ngoài PowerShell (<code>gh auth login</code>), bạn có thể nhập phiên ngay lập tức.</p>
-        <button class="btn-primary-action" onclick="handleGhCliImport()">
-          <span>⚡</span> Tự động nhập từ GitHub CLI
-        </button>
       </div>
 
       <div class="auth-error-msg" id="authErrorMsg" style="display: none;"></div>
