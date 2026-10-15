@@ -65,14 +65,57 @@ function inspectWorkflow(yamlContent) {
   };
 }
 
+function findRunsOnLines(yamlContent) {
+  if (!yamlContent) return [];
+  const lines = yamlContent.split('\n');
+  const matches = [];
+  lines.forEach((line, idx) => {
+    const m = line.match(/^(\s*runs-on\s*:\s*)(.+)$/i);
+    if (m) {
+      matches.push({
+        lineNumber: idx + 1,
+        lineContent: line.trim(),
+        target: m[2].trim(),
+        isGithubHosted: /ubuntu-|windows-|macos-|latest/i.test(m[2])
+      });
+    }
+  });
+  return matches;
+}
+
+function findWorkflowDiff(originalYaml, patchedYaml) {
+  if (!originalYaml || !patchedYaml) return [];
+  const origLines = originalYaml.split('\n');
+  const patchLines = patchedYaml.split('\n');
+  const diffs = [];
+
+  const maxLines = Math.max(origLines.length, patchLines.length);
+  for (let i = 0; i < maxLines; i++) {
+    const o = origLines[i];
+    const p = patchLines[i];
+    if (o !== p) {
+      diffs.push({
+        line: i + 1,
+        original: o !== undefined ? o : '',
+        patched: p !== undefined ? p : ''
+      });
+    }
+  }
+  return diffs;
+}
+
 function generateProposedPatch(yamlContent, customLabel) {
   if (!yamlContent) return null;
 
   let patched = yamlContent;
 
+  const targetRunsOn = customLabel 
+    ? `runs-on: [self-hosted, Linux, X64, ${customLabel}]`
+    : `runs-on: [self-hosted, Linux, X64]`;
+
   // 1. Chuyển runs-on github-hosted sang custom self-hosted
   patched = patched.replace(/runs-on\s*:\s*(\[.*?\]|ubuntu-latest|macos-latest|windows-latest|[a-zA-Z0-9_-]+)/g, () => {
-    return `runs-on: [self-hosted, Linux, X64, ${customLabel}]`;
+    return targetRunsOn;
   });
 
   // 2. Bổ sung concurrency nếu là non-deploy workflow và chưa có
@@ -106,6 +149,9 @@ function verifyRunExecution(jobDetail, intendedRunnerName) {
 
 module.exports = {
   inspectWorkflow,
+  findRunsOnLines,
+  findWorkflowDiff,
   generateProposedPatch,
   verifyRunExecution
 };
+

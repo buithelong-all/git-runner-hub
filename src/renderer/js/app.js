@@ -257,14 +257,10 @@ function openLoginModal() {
 
 function closeLoginModal() {
   const modal = document.getElementById('loginModal');
-  modal.style.display = 'none';
-  modal.classList.remove('active');
-  if (devicePollTimer) {
-    clearInterval(devicePollTimer);
-    devicePollTimer = null;
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active');
   }
-  document.getElementById('deviceFlowInitial').style.display = 'block';
-  document.getElementById('deviceFlowActive').style.display = 'none';
 }
 
 function switchAuthTab(tabId, btn) {
@@ -273,14 +269,14 @@ function switchAuthTab(tabId, btn) {
   btn.classList.add('active');
 
   const errorMsg = document.getElementById('authErrorMsg');
-  errorMsg.style.display = 'none';
+  if (errorMsg) errorMsg.style.display = 'none';
 
-  if (tabId === 'device-flow') {
-    document.getElementById('tabDeviceFlow').style.display = 'flex';
-  } else if (tabId === 'token') {
-    document.getElementById('tabToken').style.display = 'flex';
+  if (tabId === 'token') {
+    const el = document.getElementById('tabToken');
+    if (el) el.style.display = 'flex';
   } else if (tabId === 'gh-cli') {
-    document.getElementById('tabGhCli').style.display = 'flex';
+    const el = document.getElementById('tabGhCli');
+    if (el) el.style.display = 'flex';
   }
 }
 
