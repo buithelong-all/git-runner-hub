@@ -22,7 +22,12 @@ const {
 
 const {
   fetchRepoWorkflows,
-  commitWorkflowPatch
+  commitWorkflowPatch,
+  generateRepoLabel,
+  detectPlatformLabels,
+  generateRollbackPatch,
+  dispatchWorkflowRun,
+  fetchLatestWorkflowRunAndVerify
 } = require('./src/core/workflow');
 
 const PORT = process.env.PORT || 3000;
@@ -280,8 +285,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     const token = currentAuth?.token || null;
-    const result = await fetchRepoWorkflows(token, repoFullName, customLabel);
-    return sendJson(res, result);
+    const suggestedLabel = generateRepoLabel(repoFullName);
+    const effectiveLabel = customLabel || suggestedLabel;
+    const platformLabels = detectPlatformLabels(process.platform, os.arch(), effectiveLabel);
+
+    const result = await fetchRepoWorkflows(token, repoFullName, effectiveLabel);
+    return sendJson(res, {
+      ...result,
+      suggestedLabel,
+      platformLabels
+    });
   }
 
   if (pathname === '/api/workflows/patch' && req.method === 'POST') {
@@ -291,6 +304,42 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub để 1-Click commit bản vá workflow' }, 401);
     }
     const result = await commitWorkflowPatch(token, repoFullName, filePath, patchedContent, sha, branch, message);
+    return sendJson(res, result);
+  }
+
+  if (pathname === '/api/workflows/rollback' && req.method === 'POST') {
+    const { repoFullName, filePath, originalContent, sha, branch } = await parseBody(req);
+    const token = currentAuth?.token || null;
+    if (!token) {
+      return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub để rollback workflow' }, 401);
+    }
+
+    const rolledBackContent = generateRollbackPatch(originalContent);
+    const commitMsg = `ci: rollback ${filePath} to ubuntu-latest via GitRunnerHub [1-click rollback]`;
+    const result = await commitWorkflowPatch(token, repoFullName, filePath, rolledBackContent, sha, branch, commitMsg);
+    return sendJson(res, result);
+  }
+
+  if (pathname === '/api/workflows/dispatch' && req.method === 'POST') {
+    const { repoFullName, workflowFile, ref } = await parseBody(req);
+    const token = currentAuth?.token || null;
+    if (!token) {
+      return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub để kích hoạt CI run' }, 401);
+    }
+
+    const result = await dispatchWorkflowRun(token, repoFullName, workflowFile, ref || 'main');
+    return sendJson(res, result);
+  }
+
+  if (pathname === '/api/workflows/latest-run' && req.method === 'GET') {
+    const repoFullName = parsedUrl.searchParams.get('repo');
+    const runnerName = parsedUrl.searchParams.get('runner') || '';
+    if (!repoFullName) {
+      return sendJson(res, { success: false, error: 'Thiếu tên repository' }, 400);
+    }
+
+    const token = currentAuth?.token || null;
+    const result = await fetchLatestWorkflowRunAndVerify(token, repoFullName, runnerName);
     return sendJson(res, result);
   }
 

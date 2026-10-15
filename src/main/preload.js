@@ -18,7 +18,10 @@ contextBridge.exposeInMainWorld('gitRunnerAPI', {
   pollDeviceFlow: (deviceCode) => ipcRenderer.invoke('auth:device-flow-poll', deviceCode),
   logout: () => ipcRenderer.invoke('auth:logout'),
 
-  // GRH-205..206: Workflow Discovery & 1-Click Patch Engine
+  // GRH-205..210: Workflow Discovery, Isolation & Verification APIs
   fetchWorkflows: (repo, label) => ipcRenderer.invoke('workflow:fetch-repo-workflows', { repo, label }),
-  commitWorkflowPatch: (params) => ipcRenderer.invoke('workflow:commit-patch', params)
+  commitWorkflowPatch: (params) => ipcRenderer.invoke('workflow:commit-patch', params),
+  rollbackWorkflowPatch: (params) => ipcRenderer.invoke('workflow:rollback-patch', params),
+  dispatchWorkflowRun: (params) => ipcRenderer.invoke('workflow:dispatch-run', params),
+  getLatestWorkflowRun: (params) => ipcRenderer.invoke('workflow:get-latest-run', params)
 });

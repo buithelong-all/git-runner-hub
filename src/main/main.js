@@ -16,7 +16,12 @@ const {
 
 const {
   fetchRepoWorkflows,
-  commitWorkflowPatch
+  commitWorkflowPatch,
+  generateRepoLabel,
+  detectPlatformLabels,
+  generateRollbackPatch,
+  dispatchWorkflowRun,
+  fetchLatestWorkflowRunAndVerify
 } = require('../core/workflow');
 
 function logStartup(msg) {
@@ -551,12 +556,21 @@ ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) =
 });
 
 // ==============================================================================
-// WORKFLOW DISCOVERY & 1-CLICK ATTACH IPC HANDLERS [GRH-205..206]
+// WORKFLOW DISCOVERY & 1-CLICK ATTACH IPC HANDLERS [GRH-205..210]
 // ==============================================================================
 
 ipcMain.handle('workflow:fetch-repo-workflows', async (_, { repo, label }) => {
   const token = currentAuth?.token || null;
-  return await fetchRepoWorkflows(token, repo, label || '');
+  const suggestedLabel = generateRepoLabel(repo);
+  const effectiveLabel = label || suggestedLabel;
+  const platformLabels = detectPlatformLabels(process.platform, os.arch(), effectiveLabel);
+
+  const res = await fetchRepoWorkflows(token, repo, effectiveLabel);
+  return {
+    ...res,
+    suggestedLabel,
+    platformLabels
+  };
 });
 
 ipcMain.handle('workflow:commit-patch', async (_, { repoFullName, filePath, patchedContent, sha, branch, message }) => {
@@ -565,4 +579,27 @@ ipcMain.handle('workflow:commit-patch', async (_, { repoFullName, filePath, patc
     return { success: false, error: 'Chưa đăng nhập GitHub để commit bản vá' };
   }
   return await commitWorkflowPatch(token, repoFullName, filePath, patchedContent, sha, branch, message);
+});
+
+ipcMain.handle('workflow:rollback-patch', async (_, { repoFullName, filePath, originalContent, sha, branch }) => {
+  const token = currentAuth?.token || null;
+  if (!token) {
+    return { success: false, error: 'Chưa đăng nhập GitHub để rollback workflow' };
+  }
+  const rolledBackContent = generateRollbackPatch(originalContent);
+  const commitMsg = `ci: rollback ${filePath} to ubuntu-latest via GitRunnerHub [1-click rollback]`;
+  return await commitWorkflowPatch(token, repoFullName, filePath, rolledBackContent, sha, branch, commitMsg);
+});
+
+ipcMain.handle('workflow:dispatch-run', async (_, { repoFullName, workflowFile, ref }) => {
+  const token = currentAuth?.token || null;
+  if (!token) {
+    return { success: false, error: 'Chưa đăng nhập GitHub để kích hoạt CI run' };
+  }
+  return await dispatchWorkflowRun(token, repoFullName, workflowFile, ref || 'main');
+});
+
+ipcMain.handle('workflow:get-latest-run', async (_, { repoFullName, runnerName }) => {
+  const token = currentAuth?.token || null;
+  return await fetchLatestWorkflowRunAndVerify(token, repoFullName, runnerName || '');
 });

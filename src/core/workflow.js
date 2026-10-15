@@ -177,6 +177,57 @@ function generateProposedPatch(yamlContent, customLabel, options = {}) {
   return patched;
 }
 
+function generateRepoLabel(repoFullName) {
+  if (!repoFullName) return 'grh-local-runner';
+  const nameOnly = repoFullName.includes('/') ? repoFullName.split('/')[1] : repoFullName;
+  const clean = nameOnly.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `grh-${clean}`;
+}
+
+function detectPlatformLabels(platform, arch, customLabel = null) {
+  const plat = (platform || process.platform).toLowerCase();
+  const ar = (arch || process.arch).toLowerCase();
+
+  let osLabel = 'Linux';
+  if (plat.includes('darwin') || plat.includes('mac')) {
+    osLabel = 'macOS';
+  } else if (plat.includes('win')) {
+    osLabel = 'Windows';
+  }
+
+  let archLabel = 'X64';
+  if (ar.includes('arm64') || ar.includes('aarch64')) {
+    archLabel = 'ARM64';
+  } else if (ar.includes('arm')) {
+    archLabel = 'ARM';
+  }
+
+  const labels = ['self-hosted', osLabel, archLabel];
+  if (customLabel && typeof customLabel === 'string' && customLabel.trim()) {
+    labels.push(customLabel.trim());
+  }
+  return labels;
+}
+
+function generateRollbackPatch(yamlContent, fallbackOs = 'ubuntu-latest') {
+  if (!yamlContent) return null;
+
+  const lines = yamlContent.split('\n');
+  const rolledBackLines = lines.map(line => {
+    const m = line.match(/^(\s*runs-on\s*:\s*)(.+)$/i);
+    if (m) {
+      const currentTarget = m[2].trim();
+      // Nếu đang là self-hosted thì đưa về fallbackOs
+      if (/self-hosted/i.test(currentTarget)) {
+        return `${m[1]}${fallbackOs}`;
+      }
+    }
+    return line;
+  });
+
+  return rolledBackLines.join('\n');
+}
+
 function verifyRunExecution(jobDetail, intendedRunnerName) {
   if (!jobDetail) return { verified: false, reason: 'Không có dữ liệu job' };
 
@@ -310,14 +361,106 @@ async function commitWorkflowPatch(token, repoFullName, filePath, patchedContent
   }
 }
 
+/**
+ * Kích hoạt một workflow run mới qua GitHub API (workflow_dispatch)
+ */
+async function dispatchWorkflowRun(token, repoFullName, workflowIdOrFileName, ref = 'main') {
+  if (!token) return { success: false, error: 'Chưa có GitHub Token' };
+  if (!repoFullName || !workflowIdOrFileName) return { success: false, error: 'Thiếu thông số repo hoặc workflow' };
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repoFullName}/actions/workflows/${workflowIdOrFileName}/dispatches`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token.trim()}`,
+        'User-Agent': 'GitRunnerHub',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ ref })
+    });
+
+    if (res.status === 204) {
+      return { success: true, message: 'Đã kích hoạt CI Run thành công!' };
+    }
+
+    const err = await res.json().catch(() => ({}));
+    return { success: false, error: err.message || `HTTP ${res.status}` };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * Lấy workflow run mới nhất và đối chiếu runner thực thi
+ */
+async function fetchLatestWorkflowRunAndVerify(token, repoFullName, intendedRunnerName) {
+  if (!repoFullName) return { success: false, error: 'Thiếu repo name' };
+
+  const headers = {
+    'User-Agent': 'GitRunnerHub',
+    'Accept': 'application/vnd.github.v3+json'
+  };
+  if (token) headers['Authorization'] = `Bearer ${token.trim()}`;
+
+  try {
+    const runsRes = await fetch(`https://api.github.com/repos/${repoFullName}/actions/runs?per_page=1`, { headers });
+    if (!runsRes.ok) return { success: false, error: `GitHub API runs HTTP ${runsRes.status}` };
+    const runsData = await runsRes.json();
+    const latestRun = (runsData.workflow_runs || [])[0];
+    if (!latestRun) {
+      return { success: true, hasRun: false, message: 'Chưa có workflow run nào' };
+    }
+
+    const jobsRes = await fetch(latestRun.jobs_url, { headers });
+    let jobs = [];
+    if (jobsRes.ok) {
+      const jobsData = await jobsRes.json();
+      jobs = jobsData.jobs || [];
+    }
+
+    const jobVerifications = jobs.map(j => ({
+      id: j.id,
+      name: j.name,
+      status: j.status,
+      conclusion: j.conclusion,
+      runnerName: j.runner_name || null,
+      verification: verifyRunExecution(j, intendedRunnerName || '')
+    }));
+
+    const isAnyVerified = jobVerifications.some(j => j.verification.verified);
+
+    return {
+      success: true,
+      hasRun: true,
+      runId: latestRun.id,
+      name: latestRun.name,
+      status: latestRun.status,
+      conclusion: latestRun.conclusion,
+      htmlUrl: latestRun.html_url,
+      headSha: latestRun.head_sha,
+      createdAt: latestRun.created_at,
+      jobs: jobVerifications,
+      isVerifiedOnLocalRunner: isAnyVerified
+    };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
 module.exports = {
   inspectWorkflow,
   findRunsOnLines,
   findWorkflowDiff,
   generateProposedPatch,
+  generateRollbackPatch,
+  generateRepoLabel,
+  detectPlatformLabels,
   verifyRunExecution,
   fetchRepoWorkflows,
-  commitWorkflowPatch
+  commitWorkflowPatch,
+  dispatchWorkflowRun,
+  fetchLatestWorkflowRunAndVerify
 };
 
 

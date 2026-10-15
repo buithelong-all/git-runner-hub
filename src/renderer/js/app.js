@@ -139,6 +139,38 @@ if (typeof window.gitRunnerAPI === 'undefined') {
       } catch (e) {
         return { success: false, error: e.message };
       }
+    },
+    rollbackWorkflowPatch: async (params) => {
+      try {
+        const res = await fetch('/api/workflows/rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
+    dispatchWorkflowRun: async (params) => {
+      try {
+        const res = await fetch('/api/workflows/dispatch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
+    getLatestWorkflowRun: async ({ repoFullName, runnerName }) => {
+      try {
+        const res = await fetch(`/api/workflows/latest-run?repo=${encodeURIComponent(repoFullName)}&runner=${encodeURIComponent(runnerName || '')}`);
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
     }
   };
 }
@@ -773,6 +805,8 @@ async function loadRepoWorkflows(repoName, customLabel = '') {
   }
 
   currentModalWorkflows = res.workflows || [];
+  const suggestedLabel = res.suggestedLabel || (repoName.includes('/') ? `grh-${repoName.split('/')[1].toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : 'grh-local-runner');
+  const activeLabel = customLabel || suggestedLabel;
 
   if (currentModalWorkflows.length === 0) {
     body.innerHTML = `
@@ -780,14 +814,30 @@ async function loadRepoWorkflows(repoName, customLabel = '') {
         <div style="font-size: 32px; margin-bottom: 10px;">📂</div>
         <h4 style="color: var(--text-main); font-size: 15px; margin-bottom: 6px;">Chưa tìm thấy thư mục <code>.github/workflows</code></h4>
         <p style="font-size: 13px; color: var(--text-dim); max-width: 480px; margin: 0 auto 16px auto; line-height: 1.5;">
-          Repository này chưa có cấu hình GitHub Actions CI nào. Bạn có thể thêm file workflow (ví dụ: <code>.github/workflows/ci.yml</code>) với cấu hình <code>runs-on: [self-hosted, Linux, X64]</code>.
+          Repository này chưa có cấu hình GitHub Actions CI nào. Bạn có thể thêm file workflow (ví dụ: <code>.github/workflows/ci.yml</code>) với cấu hình <code>runs-on: [self-hosted, Linux, X64, ${activeLabel}]</code>.
         </p>
       </div>
     `;
     return;
   }
 
-  let html = '';
+  // Cảnh báo an toàn nếu là Public Repository [GRH-207]
+  const repoMeta = allRepos.find(r => r.name === repoName);
+  const isPublicRepo = repoMeta && !repoMeta.isPrivate;
+  let securityBannerHtml = '';
+  if (isPublicRepo) {
+    securityBannerHtml = `
+      <div class="security-alert-box">
+        <span class="icon">🛡️</span>
+        <div>
+          <b>Cảnh báo an toàn cho Public Repository:</b>
+          Đây là repo công khai. Khuyến nghị chỉ chạy Self-Hosted Runner cho các nhánh nội bộ và không cho phép tự động chạy PR từ Fork của người ngoài để bảo vệ máy tính của bạn.
+        </div>
+      </div>
+    `;
+  }
+
+  let html = securityBannerHtml;
   currentModalWorkflows.forEach((wf, idx) => {
     const isSelfHosted = wf.routing === 'SELF_HOSTED';
     const isMixed = wf.routing === 'MIXED';
@@ -831,9 +881,18 @@ async function loadRepoWorkflows(repoName, customLabel = '') {
         <span>🚀</span> 1-Click Sửa & Đẩy lên GitHub
       </button>
     ` : `
-      <div style="font-size: 13px; color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-        <span>✓</span> Workflow đã trỏ về Self-Hosted, không cần sửa đổi!
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span style="font-size: 13px; color: #34d399; font-weight: 600;">✓ Đã trỏ về Self-Hosted</span>
+        <button class="btn-rollback" id="btnRollback_${idx}" onclick="handleRollbackWorkflow('${repoName}', '${wf.path}', '${wf.sha}', ${idx})" title="Chuyển lại về ubuntu-latest">
+          <span>↩️</span> Rollback về Ubuntu-Latest
+        </button>
       </div>
+    `;
+
+    const dispatchButtonHtml = `
+      <button class="btn-dispatch" id="btnDispatch_${idx}" onclick="handleDispatchTestRun('${repoName}', '${wf.name}', ${idx})" title="Khởi chạy CI run thử nghiệm trên GitHub để kiểm chứng runner">
+        <span>▶️</span> Test CI Run
+      </button>
     `;
 
     html += `
@@ -843,7 +902,10 @@ async function loadRepoWorkflows(repoName, customLabel = '') {
             <span>📄</span>
             <span>${wf.path}</span>
           </div>
-          <span class="wf-badge ${badgeClass}">${badgeText}</span>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span class="wf-badge ${badgeClass}">${badgeText}</span>
+            ${dispatchButtonHtml}
+          </div>
         </div>
 
         <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5;">
@@ -854,8 +916,8 @@ async function loadRepoWorkflows(repoName, customLabel = '') {
 
         <div class="wf-patch-footer">
           <div class="wf-label-input-group">
-            <span>Label phụ (tùy chọn):</span>
-            <input type="text" class="wf-label-input" id="wfLabel_${idx}" placeholder="Ví dụ: my-runner" onchange="handleReloadDiffWithLabel('${repoName}', ${idx})" />
+            <span>Nhãn Runner cách ly:</span>
+            <input type="text" class="wf-label-input" id="wfLabel_${idx}" value="${escapeHtml(activeLabel)}" placeholder="Nhãn riêng..." onchange="handleReloadDiffWithLabel('${repoName}', ${idx})" title="Nhãn riêng biệt bảo đảm GitHub Actions chỉ điều phối job về máy này" />
           </div>
           <div>
             ${patchButtonHtml}
@@ -863,6 +925,7 @@ async function loadRepoWorkflows(repoName, customLabel = '') {
         </div>
 
         <div id="wfCommitStatus_${idx}" style="display: none;"></div>
+        <div id="wfVerificationBox_${idx}" class="run-verification-box" style="display: none;"></div>
       </div>
     `;
   });
@@ -907,7 +970,7 @@ async function handleCommitWorkflowPatch(repoName, filePath, sha, index) {
 
       statusBox.innerHTML = `
         <div>
-          🎉 <b>Thành công 100%!</b> Dòng <code>runs-on</code> đã được sửa thành <code>[self-hosted, Linux, X64]</code>.<br>
+          🎉 <b>Thành công 100%!</b> Dòng <code>runs-on</code> đã được sửa thành <code>[self-hosted, Linux, X64, ${customLabel}]</code>.<br>
           <span style="font-size: 11px; opacity: 0.85;">Commit: <code>${shortSha}</code> trên GitHub. Mọi lần push/PR tiếp theo sẽ tự động chạy trên máy của bạn!</span>
         </div>
         <a class="wf-commit-link" href="${commitUrl}" target="_blank">Xem trên GitHub ↗</a>
@@ -918,7 +981,6 @@ async function handleCommitWorkflowPatch(repoName, filePath, sha, index) {
         btn.disabled = true;
       }
 
-      // Cập nhật lại badge sau 2s
       setTimeout(() => {
         loadRepoWorkflows(repoName, customLabel);
       }, 2500);
@@ -942,6 +1004,165 @@ async function handleCommitWorkflowPatch(repoName, filePath, sha, index) {
       btn.innerHTML = `<span>🚀</span> Thử lại 1-Click Patch`;
     }
   }
+}
+
+// 1-Click Rollback về Ubuntu-Latest [GRH-210]
+async function handleRollbackWorkflow(repoName, filePath, sha, index) {
+  const wf = currentModalWorkflows[index];
+  if (!wf) return;
+
+  if (!confirm(`Bạn có chắc chắn muốn HOÀN TÁC (Rollback) file '${wf.name}' trở lại 'runs-on: ubuntu-latest'?`)) return;
+
+  const btn = document.getElementById(`btnRollback_${index}`);
+  const statusBox = document.getElementById(`wfCommitStatus_${index}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinning">🔄</span> Đang rollback...`;
+  }
+
+  try {
+    const res = await window.gitRunnerAPI.rollbackWorkflowPatch({
+      repoFullName: repoName,
+      filePath: wf.path,
+      originalContent: wf.originalContent,
+      sha: wf.sha
+    });
+
+    if (res.success) {
+      statusBox.style.display = 'flex';
+      statusBox.className = 'wf-commit-success-box';
+      statusBox.innerHTML = `
+        <div>
+          ↩️ <b>Đã hoàn tác thành công!</b> File workflow đã quay lại chạy trên <code>ubuntu-latest</code>.
+        </div>
+      `;
+      setTimeout(() => {
+        loadRepoWorkflows(repoName);
+      }, 2000);
+    } else {
+      alert('Lỗi rollback: ' + res.error);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>↩️</span> Rollback về Ubuntu-Latest`;
+      }
+    }
+  } catch (e) {
+    alert('Lỗi: ' + e.message);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>↩️</span> Rollback về Ubuntu-Latest`;
+    }
+  }
+}
+
+// Kích hoạt Test CI Run & Đối Soát Thực Thi (GRH-208)
+async function handleDispatchTestRun(repoName, workflowFileName, index) {
+  const btn = document.getElementById(`btnDispatch_${index}`);
+  const verifyBox = document.getElementById(`wfVerificationBox_${index}`);
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinning">🔄</span> Đang gửi lệnh...`;
+  }
+
+  verifyBox.style.display = 'block';
+  verifyBox.innerHTML = `
+    <div class="run-verification-header">
+      <span>Đang kích hoạt CI Run trên GitHub...</span>
+      <span class="verification-badge unverified"><span class="spinning">🔄</span> Đang gửi</span>
+    </div>
+    <div style="color: var(--text-dim);">Đang gửi sự kiện workflow_dispatch lên GitHub Actions...</div>
+  `;
+
+  try {
+    const res = await window.gitRunnerAPI.dispatchWorkflowRun({
+      repoFullName: repoName,
+      workflowFile: workflowFileName,
+      ref: 'main'
+    });
+
+    if (!res.success) {
+      verifyBox.innerHTML = `
+        <div style="color: #fca5a5;">
+          ⚠️ Không thể kích hoạt tự động: ${res.error}.<br>
+          <span style="font-size:11px; opacity:0.8;">(Gợi ý: Workflow cần có trigger <code>workflow_dispatch</code> hoặc bạn có thể tạo 1 commit nhỏ để kích hoạt).</span>
+        </div>
+      `;
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>▶️</span> Test CI Run`;
+      }
+      return;
+    }
+
+    verifyBox.innerHTML = `
+      <div class="run-verification-header">
+        <span>🚀 Đã kích hoạt CI Run thành công!</span>
+        <span class="verification-badge unverified"><span class="spinning">🔄</span> Đang chờ runner nhận job</span>
+      </div>
+      <div style="color: var(--text-dim);">Đang liên tục đối soát runner thực thi...</div>
+    `;
+
+    // Polling đối soát runner thực thi
+    pollExecutionVerification(repoName, index, 0);
+
+  } catch (e) {
+    verifyBox.innerHTML = `<div style="color: #fca5a5;">❌ Lỗi: ${e.message}</div>`;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>▶️</span> Test CI Run`;
+    }
+  }
+}
+
+async function pollExecutionVerification(repoName, index, attempt) {
+  const verifyBox = document.getElementById(`wfVerificationBox_${index}`);
+  const btn = document.getElementById(`btnDispatch_${index}`);
+  if (attempt > 10) {
+    if (verifyBox) {
+      verifyBox.innerHTML += `<div style="margin-top:6px; color:var(--text-dim);">Hết thời gian chờ phản hồi trực tiếp. Bạn có thể mở mục "Lịch sử CI" để xem kết quả.</div>`;
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>▶️</span> Test CI Run`;
+    }
+    return;
+  }
+
+  setTimeout(async () => {
+    try {
+      const runInfo = await window.gitRunnerAPI.getLatestWorkflowRun({ repoFullName: repoName, runnerName: 'local' });
+      if (runInfo.success && runInfo.hasRun) {
+        const isVerified = runInfo.isVerifiedOnLocalRunner;
+        const statusBadge = isVerified 
+          ? `<span class="verification-badge verified">✅ ĐÃ ĐỐI SOÁT: Chạy trên Local Runner</span>`
+          : `<span class="verification-badge unverified">Trạng thái: ${runInfo.status}</span>`;
+
+        verifyBox.innerHTML = `
+          <div class="run-verification-header">
+            <span>Workflow Run #${runInfo.runId} (${runInfo.name})</span>
+            ${statusBadge}
+          </div>
+          <div style="display: flex; gap: 14px; font-size: 11px; color: var(--text-dim); margin-top: 4px;">
+            <span>Commit: <code>${(runInfo.headSha || '').substring(0, 7)}</code></span>
+            <span>Kết quả: <b style="color: ${runInfo.conclusion === 'success' ? '#34d399' : '#f59e0b'}">${runInfo.conclusion || runInfo.status}</b></span>
+            <a href="${runInfo.htmlUrl}" target="_blank" style="color: #38bdf8; text-decoration: underline;">Xem chi tiết trên GitHub Actions ↗</a>
+          </div>
+        `;
+
+        if (runInfo.status === 'completed' || isVerified) {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = `<span>▶️</span> Test CI Run`;
+          }
+          return;
+        }
+      }
+      pollExecutionVerification(repoName, index, attempt + 1);
+    } catch (e) {
+      pollExecutionVerification(repoName, index, attempt + 1);
+    }
+  }, 3000);
 }
 
 function escapeHtml(str) {
