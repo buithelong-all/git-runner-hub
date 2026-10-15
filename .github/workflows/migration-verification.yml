@@ -54,8 +54,7 @@ jobs:
             exit 1
           else
             result=$?
-            test "$result" != 124
-            test "$result" != 137
+            test "$result" = 126 || test "$result" = 127
             echo "WINDOWS_INTEROP_DENIED_RC=$result"
           fi
       - name: Run validation

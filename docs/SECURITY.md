@@ -31,6 +31,16 @@ A new per-repo account's detach requires a repo-specific remove token via stdin;
 
 Follow the read-only host checklist and cutover requirements in docs/RUNNER-MIGRATION-P0.md before changing a running machine.
 
+## WSL staged-service sandbox
+
+UID separation alone does not restrict drvfs Windows mounts. The supervised WSL staging path additionally uses `runner-sandbox-linux.sh`: an administrator-owned systemd drop-in with a root-owned `ExecStartPre` checker. This is a **service-process boundary**, not a claim that root's `runuser` invocation outside the service receives the same restrictions.
+
+The service sees private read-only `/opt`, `/var/lib/gitrunnerhub` and `/mnt` trees, with only its own three managed directories bound writable. Only `/mnt/wsl/resolv.conf` is bound read-only for the host's WSL DNS symlink. Windows drives are absent. WSL `/init`, `/run/WSL`, `/usr/lib/wsl`, user/session buses, home directories and the host's process-root aliases are blocked or hidden. No capabilities, no new privileges and namespace restrictions prevent ordinary job children from remounting or joining a less restricted namespace. `KillMode=control-group` contains orphaned job processes during service stop.
+
+The checker runs before the listener and again in CI. Host acceptance additionally requires a copied Windows PE probe to fail execution from the actual CI process, two successful same-SHA runs, and supervised rollback/restart evidence. The PE fixture is deliberately placed only in the staging workspace, never in repository sources.
+
+This profile currently targets the audited systemd-enabled WSL host with `/mnt/wsl/resolv.conf`. It is not automatically applied by the existing desktop installer, and must not be described as a blanket fix for new desktop installations or macOS. Containers, Docker and namespace-based build tooling are intentionally unavailable under this policy. Network access remains available for GitHub; unrestricted network/localhost service isolation is not established by this filesystem profile. Kernel exploits and administrator/root actions are outside the observed boundary.
+
 ## Verification requirements
 
 The Node test suite checks deterministic unique identities, safe repository input, non-destructive planning, critical script invariants, desktop stdin transport, fork blocking and checkout credential handling. Those tests **do not** establish that a service is running with the intended UID or that one repo cannot read another repo's files. Verify those properties on the actual Linux host, then run a real GitHub Actions job on the intended runner and collect exact SHA, runner name and test receipts.

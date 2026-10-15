@@ -66,3 +66,16 @@ sudo bash scripts/runner-migration-linux.sh rollback <owner/repo>
 ```
 
 Không có lệnh cleanup tự động trong migration controller. Việc unregister/xóa runner cũ là một phê duyệt phá hủy riêng sau khi rollback window kết thúc.
+
+## 4. Sandbox cho staged service trên máy WSL đã audit
+
+Chỉ áp dụng khi Owner đã duyệt tác động và rollback. Dừng staging trước khi thay profile; không restart runner legacy. Render để review trước:
+
+```bash
+bash scripts/runner-sandbox-linux.sh --render OWNER/REPO
+sudo bash scripts/runner-sandbox-linux.sh apply OWNER/REPO
+```
+
+Helper backup unit/state vào thư mục root-only, cài checker do root sở hữu và drop-in `50-gitrunnerhub-sandbox.conf`, kiểm tra syntax systemd rồi reload daemon. Helper để staging ở trạng thái dừng; administrator khởi động đúng service sau review. `ExecStartPre` phải pass thì listener mới chạy. Lần `apply` thứ hai từ chối trạng thái đã tồn tại, không ghi đè cấu hình.
+
+Rollback profile: dừng **staging**, rồi `sudo bash scripts/runner-sandbox-linux.sh rollback OWNER/REPO`. Drop-in được chuyển vào thư mục backup để giữ bằng chứng; helper để service dừng, không chạy lại listener thiếu sandbox. Để phục hồi sandbox, administrator restore đúng drop-in đã review, reload daemon và start staging; ghi bằng chứng checker pass cùng UID thực. Không dùng `runuser` bên ngoài service để suy ra quyền của job bên trong namespace.
