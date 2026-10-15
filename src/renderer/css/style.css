@@ -15,6 +15,10 @@
   --warning: #f59e0b;
 }
 
+.password-mask {
+  -webkit-text-security: disc;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

@@ -94,7 +94,7 @@
         <div class="input-bar-group">
           <div class="url-input-wrapper">
             <span class="url-icon">🔗</span>
-            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/buithelong-all/my-repo)...">
+            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/buithelong-all/my-repo)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
           </div>
           <button class="btn-action" id="btnScanRepo" onclick="handleScanUrl()">
             <span>⚡ Kiểm tra & Kích hoạt</span>
@@ -106,7 +106,8 @@
       <div class="controls-row">
         <div class="search-box">
           <span>🔍</span>
-          <input type="text" id="searchInput" placeholder="🔍 Lọc dự án theo tên (ví dụ: DanhTinh-Lab, cae...)" oninput="handleSearch()">
+          <input type="text" id="searchInput" placeholder="Tìm kiếm tên repository (để trống để xem tất cả)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="handleSearch()">
+          <button id="clearSearchBtn" onclick="clearSearch()" style="display:none; background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:16px; padding:0 8px;" title="Xóa tìm kiếm">✕</button>
         </div>
 
         <div class="filter-tabs">
@@ -159,7 +160,7 @@
         </a>
 
         <div class="pat-input-wrapper">
-          <input type="password" id="patInput" class="auth-input" placeholder="Dán token bắt đầu bằng ghp_... hoặc github_pat_..." />
+          <input type="text" id="patInput" class="auth-input password-mask" placeholder="Dán token bắt đầu bằng ghp_... hoặc github_pat_..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <button class="btn-primary-action" onclick="handlePatLogin()">
             <span>✓</span> Lưu & Đăng nhập
           </button>

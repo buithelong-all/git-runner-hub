@@ -475,8 +475,23 @@ function setFilter(type, btn) {
   handleSearch();
 }
 
+function clearSearch() {
+  const searchInput = document.getElementById('searchInput');
+  if (searchInput) {
+    searchInput.value = '';
+    handleSearch();
+  }
+}
+
 function handleSearch() {
-  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+  const searchInput = document.getElementById('searchInput');
+  const clearBtn = document.getElementById('clearSearchBtn');
+  const query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+  if (clearBtn) {
+    clearBtn.style.display = query ? 'inline-block' : 'none';
+  }
+
   let filtered = allRepos;
 
   if (currentFilter === 'online') {
