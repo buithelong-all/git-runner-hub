@@ -4,126 +4,176 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' https: data:;">
-  <title>GitRunnerHub — 1-Click Self-Hosted Runner Manager</title>
+  <title>GitRunnerHub — 1-Click Self-Hosted Runner Manager (Cyber-Dark)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 
   <div class="app-layout">
-    <!-- Sidebar -->
-    <div class="sidebar">
-      <div class="brand-header">
-        <span>⚡ GitRunnerHub</span>
-        <span class="brand-badge">v1.0.0</span>
-      </div>
-
-      <!-- Khối Tài Khoản Động & Auth Actions [GRH-202] -->
-      <div class="account-card" id="accountCard">
-        <div class="account-badge">
-          <div class="account-avatar" id="accountAvatar">?</div>
-          <div class="account-info">
-            <div class="name" id="accountName">Đang kiểm tra...</div>
-            <div class="handle" id="accountHandle">@...</div>
-          </div>
+    <!-- Top Header Bar -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand-logo">
+          <span class="brand-icon">⚡</span>
+          <span class="brand-text">GitRunnerHub</span>
+          <span class="brand-badge">v3.0 CYBER-DARK</span>
         </div>
-        <div class="account-actions" id="accountActions">
-          <button class="btn-account-action" id="btnSwitchAccount" onclick="openLoginModal()" title="Đổi tài khoản">
-            <span>🔄</span> Đổi tài khoản
-          </button>
-          <button class="btn-account-action btn-logout" id="btnLogout" onclick="handleLogout()" title="Đăng xuất">
-            <span>🚪</span> Đăng xuất
-          </button>
-        </div>
-        <div class="account-login-prompt" id="accountLoginPrompt" style="display: none;">
-          <button class="btn-login-trigger" onclick="openLoginModal()">
-            <span>🔑</span> Đăng nhập GitHub
-          </button>
-        </div>
-      </div>
-
-      <!-- Nút Kiểm tra & Nạp Repos -->
-      <button class="btn-sync-all" id="btnRefreshRepos" onclick="refreshRepos()">
-        <span id="syncIcon">🔄</span>
-        <span id="syncText">Kiểm tra & Nạp tất cả Repos</span>
-      </button>
-
-      <div class="stats-card">
-        <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-dim); letter-spacing: 0.5px;">
-          Hạ tầng Runner
-        </div>
-        <div class="stats-row">
-          <span>Hệ điều hành:</span>
-          <span id="statOS" style="color: var(--accent-cyan);">Đang quét...</span>
-        </div>
-        <div class="stats-row">
-          <span>Tổng số Repos:</span>
-          <span id="statTotalRepos" style="color: var(--accent-cyan);">0</span>
-        </div>
-        <div class="stats-row">
-          <span>🟢 Đã kích hoạt CI:</span>
-          <span id="statOnlineRunners" style="color: #34d399;">0</span>
-        </div>
-        <div class="stats-row">
-          <span>⚪ Chưa kích hoạt:</span>
-          <span id="statUnconfigured" style="color: var(--text-muted);">0</span>
-        </div>
-        <div class="stats-row">
-          <span>RAM rảnh:</span>
+        <div class="system-chip" id="systemChip" title="Môi trường vận hành">
+          <span class="chip-dot"></span>
+          <span id="statOS">Đang quét...</span>
+          <span class="chip-sep">/</span>
           <span id="statRam">...</span>
         </div>
       </div>
 
-      <div style="margin-top: auto; font-size: 11px; color: var(--text-dim); line-height: 1.5;">
-        🔒 <b>Tự động hóa:</b> Khi kích hoạt, runner chạy như một system service thường trực. Không cần cấu hình lại mỗi lần mở app!
-      </div>
-    </div>
-
-    <!-- Main View -->
-    <div class="main-view">
-      <!-- Quick Add / Search Card -->
-      <div class="quick-input-card">
-        <div class="input-header">
-          <div>
-            <h2>Dán Link GitHub Repo hoặc Chọn từ danh sách</h2>
-            <p>Tự động nhận diện quyền và kích hoạt runner local miễn phí cho dự án</p>
+      <div class="header-right">
+        <!-- Account Card / Login trigger -->
+        <div class="account-chip" id="accountChip">
+          <div class="account-avatar" id="accountAvatar">?</div>
+          <div class="account-meta">
+            <div class="account-name" id="accountName">Đang kiểm tra...</div>
+            <div class="account-handle" id="accountHandle">@...</div>
+          </div>
+          <div class="account-dropdown-actions" id="accountActions">
+            <button class="btn-chip-action" id="btnSwitchAccount" onclick="openLoginModal()" title="Đổi tài khoản">
+              <span>🔄</span> Đổi
+            </button>
+            <button class="btn-chip-action btn-logout" id="btnLogout" onclick="handleLogout()" title="Đăng xuất">
+              <span>🚪</span>
+            </button>
+          </div>
+          <div class="account-login-prompt" id="accountLoginPrompt" style="display: none;">
+            <button class="btn-login-trigger" onclick="openLoginModal()">
+              <span>🔑</span> Kết nối GitHub
+            </button>
           </div>
         </div>
-        <div class="input-bar-group">
-          <div class="url-input-wrapper">
-            <span class="url-icon">🔗</span>
-            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/buithelong-all/my-repo)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+
+        <button class="btn-header-sync" id="btnRefreshRepos" onclick="refreshRepos()" title="Làm mới danh sách Repos & Runner">
+          <span id="syncIcon">🔄</span>
+          <span id="syncText">Đồng bộ</span>
+        </button>
+
+        <button class="btn-toggle-terminal" id="btnToggleTerminal" onclick="toggleTerminalDrawer()" title="Bật/Tắt Live Terminal">
+          <span>💻</span>
+          <span class="term-status-dot"></span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Scrollable Content Area -->
+    <main class="main-content">
+      
+      <!-- Top Stat Metrics Bar (Hero Cards) -->
+      <section class="stat-metrics-bar">
+        <div class="metric-card" onclick="setFilter('all')">
+          <div class="metric-label">Repositories</div>
+          <div class="metric-value-row">
+            <span class="metric-number" id="statTotalRepos">0</span>
+            <span class="metric-sub" id="metricReposSub">Tổng dự án</span>
           </div>
-          <button class="btn-action" id="btnScanRepo" onclick="handleScanUrl()">
-            <span>⚡ Kiểm tra & Kích hoạt</span>
+        </div>
+
+        <div class="metric-card active-metric" onclick="setFilter('online')">
+          <div class="metric-label">
+            <span class="dot-online"></span> Runners
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-number text-green" id="statOnlineRunners">0</span>
+            <span class="metric-sub text-green">Online &amp; Sẵn sàng</span>
+          </div>
+        </div>
+
+        <div class="metric-card" onclick="setFilter('mismatch')">
+          <div class="metric-label">
+            <span class="dot-warning"></span> Warnings / Mismatch
+          </div>
+          <div class="metric-value-row">
+            <span class="metric-number text-warning" id="statWarningCount">0</span>
+            <span class="metric-sub text-warning">Dùng ubuntu-latest</span>
+          </div>
+        </div>
+
+        <div class="metric-card">
+          <div class="metric-label">Verified CI Runs</div>
+          <div class="metric-value-row">
+            <span class="metric-number text-cyan" id="statVerifiedRuns">—</span>
+            <span class="metric-sub text-cyan">Chứng minh thực thi</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Add / Scan Bar -->
+      <section class="quick-scan-section">
+        <div class="quick-scan-wrapper">
+          <div class="url-input-container">
+            <span class="url-icon">🔗</span>
+            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/buithelong-all/DanhTinh-Lab)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter') handleScanUrl()">
+          </div>
+          <button class="btn-gradient-action" id="btnScanRepo" onclick="handleScanUrl()">
+            <span>⚡ Kiểm tra &amp; Kích hoạt</span>
           </button>
         </div>
-      </div>
+      </section>
 
       <!-- Controls: Search & Filter Tabs -->
-      <div class="controls-row">
-        <div class="search-box">
-          <span>🔍</span>
-          <input type="text" id="searchInput" placeholder="Tìm kiếm tên repository (để trống để xem tất cả)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="handleSearch()">
-          <button id="clearSearchBtn" onclick="clearSearch()" style="display:none; background:transparent; border:none; color:var(--text-muted); cursor:pointer; font-size:16px; padding:0 8px;" title="Xóa tìm kiếm">✕</button>
+      <section class="controls-toolbar">
+        <div class="search-container">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchInput" placeholder="Tìm kiếm theo tên repository hoặc mô tả..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="handleSearch()">
+          <button id="clearSearchBtn" class="clear-search-btn" onclick="clearSearch()" title="Xóa tìm kiếm">✕</button>
         </div>
 
-        <div class="filter-tabs">
-          <button class="tab-btn active" onclick="setFilter('all', this)">Tất cả (<span id="countAll">0</span>)</button>
-          <button class="tab-btn" onclick="setFilter('online', this)">🟢 Đã kích hoạt (<span id="countOnline">0</span>)</button>
-          <button class="tab-btn" onclick="setFilter('unconfigured', this)">⚪ Chưa kích hoạt (<span id="countUnconfigured">0</span>)</button>
+        <div class="filter-tab-group">
+          <button class="filter-tab active" data-filter="all" onclick="setFilter('all', this)">
+            Tất cả (<span id="countAll">0</span>)
+          </button>
+          <button class="filter-tab" data-filter="online" onclick="setFilter('online', this)">
+            🟢 Runner Online (<span id="countOnline">0</span>)
+          </button>
+          <button class="filter-tab" data-filter="mismatch" onclick="setFilter('mismatch', this)">
+            ⚠️ Cần sửa CI (<span id="countMismatch">0</span>)
+          </button>
+          <button class="filter-tab" data-filter="unconfigured" onclick="setFilter('unconfigured', this)">
+            ⚪ Chưa kích hoạt (<span id="countUnconfigured">0</span>)
+          </button>
         </div>
-      </div>
+      </section>
 
-      <!-- Repos Grid -->
-      <div class="repos-grid" id="reposGrid">
-        <div style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-dim);">
-          Đang nạp dữ liệu từ GitHub...
+      <!-- Repositories Grid View -->
+      <section class="repos-section">
+        <div class="repos-grid" id="reposGrid">
+          <div class="grid-loading-placeholder">
+            <span class="spinning">🔄</span>
+            <p>Đang nạp dữ liệu từ GitHub...</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Docked Live Terminal (Drawer) -->
+    <footer class="terminal-drawer" id="terminalDrawer">
+      <div class="terminal-drawer-header" onclick="toggleTerminalDrawer()">
+        <div class="terminal-drawer-title">
+          <span class="terminal-icon">💻</span>
+          <span class="terminal-name">Live Terminal</span>
+          <span class="terminal-mode-badge" id="termModeBadge">Daemon Idle</span>
+        </div>
+        <div class="terminal-drawer-controls" onclick="event.stopPropagation()">
+          <button class="btn-term-ctrl" onclick="clearTerminalLogs()" title="Xóa màn hình log">🧹 Clear</button>
+          <button class="btn-term-ctrl" id="btnExpandTerm" onclick="expandTerminalDrawer()" title="Phóng to / Thu nhỏ">⤢</button>
+          <button class="btn-term-ctrl" onclick="toggleTerminalDrawer()" title="Đóng ngăn kéo">✕</button>
         </div>
       </div>
-    </div>
+      <div class="terminal-drawer-body" id="terminalLog">
+        <div class="term-line welcome">> GitRunnerHub Terminal Ready. Ready for Local Runner events.</div>
+      </div>
+    </footer>
+
   </div>
 
   <!-- Modal Đăng nhập GitHub [GRH-201..202] -->
@@ -131,8 +181,8 @@
     <div class="modal-card auth-modal-card">
       <div class="modal-header">
         <div>
-          <h3>Đăng nhập GitHub vào GitRunnerHub</h3>
-          <p>Kết nối tài khoản để tự động nạp repos và cấp quyền cho Local Runner</p>
+          <h3 class="modal-title">Đăng nhập GitHub vào GitRunnerHub</h3>
+          <p class="modal-subtitle">Kết nối tài khoản để tự động nạp repos và cấp quyền cho Local Runner</p>
         </div>
         <button class="modal-close-btn" onclick="closeLoginModal()">✕</button>
       </div>
@@ -149,14 +199,14 @@
 
       <!-- Tab Content: PAT (Khuyên dùng) -->
       <div class="auth-tab-content" id="tabToken" style="display: flex;">
-        <p class="auth-desc">Tạo quyền kết nối tự động với GitHub (chỉ mất 10 giây, không cần nhập mật khẩu vào app):</p>
+        <p class="auth-desc">Tạo quyền kết nối tự động với GitHub (chỉ mất 10 giây, an toàn tuyệt đối):</p>
         
-        <a href="https://github.com/settings/tokens/new?scopes=repo,workflow,read:org&description=GitRunnerHub" target="_blank" style="display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 10px 16px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 8px; color: #38bdf8; font-size: 13px; text-decoration: none; font-weight: 600; transition: all 0.2s ease;">
-          <span>🌐 Bước 1: Bấm vào đây để mở trang cấp quyền trên GitHub</span>
-          <span style="font-size: 11px; opacity: 0.8;">(Đã chọn sẵn quyền repo & workflow) ↗</span>
+        <a href="https://github.com/settings/tokens/new?scopes=repo,workflow,read:org&description=GitRunnerHub" target="_blank" class="auth-token-direct-link">
+          <span>🌐 Bước 1: Mở trang cấp quyền trên GitHub</span>
+          <span style="font-size: 11px; opacity: 0.85;">(Đã tích sẵn quyền repo &amp; workflow) ↗</span>
         </a>
 
-        <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px; line-height: 1.5;">
+        <div class="auth-steps-guide">
           <b>Bước 2:</b> Kéo xuống cuối trang GitHub bấm nút xanh lá <b>"Generate token"</b>.<br>
           <b>Bước 3:</b> Copy chuỗi mã <code>ghp_...</code> và dán vào ô bên dưới:
         </div>
@@ -164,7 +214,7 @@
         <div class="pat-input-wrapper">
           <input type="text" id="patInput" class="auth-input password-mask" placeholder="Dán mã ghp_... vào đây" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <button class="btn-primary-action" onclick="handlePatLogin()">
-            <span>✓</span> Hoàn tất & Đăng nhập
+            <span>✓</span> Hoàn tất &amp; Đăng nhập
           </button>
         </div>
       </div>
@@ -184,31 +234,46 @@
   <!-- Modal Setup Live Output -->
   <div class="modal-overlay" id="setupModal" style="display: none;">
     <div class="modal-card">
-      <h3 style="font-size: 17px;" id="modalTitle">Đang kích hoạt Local CI Runner...</h3>
-      <p style="font-size: 13px; color: var(--text-muted);" id="modalDesc">Đang chuẩn bị gói runner và đăng ký service ngầm...</p>
+      <div class="modal-header">
+        <div>
+          <h3 class="modal-title" id="modalTitle">Đang kích hoạt Local CI Runner...</h3>
+          <p class="modal-subtitle" id="modalDesc">Đang chuẩn bị gói runner và đăng ký service ngầm...</p>
+        </div>
+      </div>
       
-      <div class="terminal-box" id="terminalLog"></div>
+      <div class="terminal-box" id="setupModalTerminalLog"></div>
 
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px;">
         <button class="btn-secondary" id="modalCloseBtn" onclick="closeModal()" disabled>Đang xử lý...</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal Workflow Discovery & 1-Click Patch [GRH-205..206] -->
+  <!-- Modal Workflow Discovery & Side-by-side / Unified Visual Diff [GRH-205..208] -->
   <div class="modal-overlay" id="workflowModal" style="display: none;">
     <div class="modal-card workflow-modal-card">
       <div class="modal-header">
-        <div>
-          <h3 id="wfModalRepoTitle">🛠️ Tự động gắn Runner & Sửa CI Workflow</h3>
-          <p id="wfModalRepoSubtitle">Phát hiện dòng runs-on: ubuntu-latest và 1-Click sửa sang Self-Hosted</p>
+        <div class="wf-header-info">
+          <h3 class="modal-title" id="wfModalRepoTitle">🛠️ Tự động gắn Runner &amp; Sửa CI Workflow</h3>
+          <p class="modal-subtitle" id="wfModalRepoSubtitle">Phát hiện dòng runs-on: ubuntu-latest và 1-Click sửa sang Self-Hosted</p>
         </div>
+        
+        <!-- Diff Mode Switcher Tabs -->
+        <div class="diff-view-toggle">
+          <button class="diff-toggle-btn active" id="btnDiffSideBySide" onclick="switchDiffMode('side-by-side')">
+            Side by side
+          </button>
+          <button class="diff-toggle-btn" id="btnDiffUnified" onclick="switchDiffMode('unified')">
+            Unified
+          </button>
+        </div>
+
         <button class="modal-close-btn" onclick="closeWorkflowModal()">✕</button>
       </div>
 
       <div class="workflow-modal-body" id="wfModalBody">
-        <div style="text-align: center; padding: 40px; color: var(--text-dim);">
-          <span class="spinning" style="display:inline-block; font-size:24px; margin-bottom:10px;">🔄</span>
+        <div class="grid-loading-placeholder">
+          <span class="spinning">🔄</span>
           <div>Đang quét các file workflow trong <code>.github/workflows</code>...</div>
         </div>
       </div>
