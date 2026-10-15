@@ -74,3 +74,45 @@ The old `/home/actions-runner` mode `0750` protects its workspaces from the new 
 - `HOST_ISOLATION_VERIFIED`: **NOT_VERIFIED / REQUEST_CHANGES**, because cross-repository credential-file readability remains.
 - New-runner CI: **0/2**, intentionally not dispatched after host gate failure. Full migration rollback after a legacy cutover: **NOT_RUN**.
 - Further work needs a reviewed, separately authorized remedy for existing legacy credential permissions or service sandboxing; do not silently chmod/chown another repository's existing runner. `DanhTinh-Lab` PR #14 follow-on remains gated on successful host acceptance.
+
+## Approved permission trial, two CI attempts, and Windows mount blocker
+
+This section supersedes the prior current-state summary. The owner approved changing exactly `/opt/actions-runner` and `/opt/actions-runner-buithelong-all-DanhTinh-Lab` to `0700`, preserving owners/content, restarting staging, and rolling back on verification failure without interrupting legacy runners.
+
+- Before mutation both paths were ordinary directories, mode `0755`, owner `1000:1000`.
+- Applied nonrecursive chmod `0700` to those two paths only; restarted only the staging service, keeping its autostart disabled.
+- The real staging listener ran as UID 997. GitHub observed its sole label `grh-3605dc3bbe4d`, online/idle.
+- Permission-only checks denied UID 997 access to both legacy `.credentials` files and the DanhTinh-Lab Linux workspace. UID 1000 was denied traversal of the new managed workspace. Owners remained unchanged.
+
+### Exact-SHA CI receipts
+
+Verification workflow checked out `github.event.pull_request.head.sha` explicitly and asserted the resulting Git HEAD, runner name, dedicated username, non-root UID, managed directory owners/modes, Linux cross-access denial and absence of sudo before running the 23-test suite.
+
+Both independent job executions used source `0c0a3160e11447a00757dbbfd823f2d6811d7a9a`, runner `local-buithelong-all-git-runner-hub-isolated-3605dc3bbe4d`, requested label `grh-3605dc3bbe4d`:
+
+| Receipt | Result | Job ID |
+| --- | --- | --- |
+| [Run 38673813733, attempt 1](https://github.com/buithelong-all/git-runner-hub/actions/runs/38673813733/attempts/1) | SUCCESS | 116222741349 |
+| [Run 38673813733, attempt 2](https://github.com/buithelong-all/git-runner-hub/actions/runs/38673813733/attempts/2) | SUCCESS | 116222912932 |
+
+This meets two successful executions on one exact SHA, but does not close the complete host gate below. It is not evidence for a later documentation/workflow-disable commit, nor for a second repository's dedicated UID.
+
+### Wider host boundary failed
+
+- `/mnt/d` is the Windows D: drive, mounted using drvfs/9p, read/write.
+- A permission-only `test -r` executed as UID 997 returned **0** for `/mnt/d/Chatgpt/Github/Danh Tinh Lab/app/package.json`. The checkout's `.git` directory existence was independently confirmed. No file content was opened.
+- `test -x /mnt/c/Users/Admin` as UID 997 returned **0**. This is a profile-traversal observation, not a claim that specific secrets were read.
+- The actual service had empty `RootDirectory` and `InaccessiblePaths`, with `PrivateMounts=no`, `ProtectHome=no`, `ProtectSystem=no`, `NoNewPrivileges=no`. No service mount restriction was observed that would close the path accessible to its UID.
+- Therefore Linux mode changes and successful CI do not prove isolation from other Windows-mounted repositories or the owner's Windows environment.
+
+### Rollback and current disposition
+
+- After confirming staging idle and both CI attempts complete, stopped only the staging service. Restored the two trial directory modes exactly to `0755`, owner `1000:1000`; no recursive changes or content edits.
+- Verified legacy services remained active with unchanged MainPIDs: GitRunnerHub 122, DanhTinh-Lab 118, caevietnam.vn 119. Staging was inactive with MainPID 0 and autostart disabled.
+- This rollback deliberately restores the prior legacy credential permission exposure; it does not remediate it. No untrusted job should be inferred safe on legacy runners.
+- New files, registration, account and root-only backup are retained. The verification workflow is now disabled at its job condition so future PR updates do not queue jobs against a stopped or unverified staging runner.
+- `CODE_TEST_PASS`: PASS at the tested `0c0a316...` source, 23 tests in both isolated CI attempts.
+- `HOST_ISOLATION_VERIFIED`: **NOT_VERIFIED / REQUEST_CHANGES**, because Windows mount cross-repository access remains and only one repository's dedicated runner was provisioned.
+- Rollback from this approved permission/staging trial is verified. A legacy cutover followed by restoration/restart is still **NOT_RUN**.
+- No legacy cutover, second-repository migration, cleanup, merge, production deployment or DanhTinh-Lab PR #14 implementation was performed.
+- Next decision requires a reviewed host boundary: e.g. service mount restrictions that also address WSL interoperability/escape paths, or a dedicated runner VM with no owner Windows-drive sharing. Do not disable WSL interoperability or unmount the owner's drives globally without explicit authorization.

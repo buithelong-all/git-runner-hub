@@ -12,7 +12,9 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Host gate closed after Windows mount cross-access was observed.
+    # Re-enable the same-repository check only after approved host remediation.
+    if: ${{ false }}
     runs-on: [grh-3605dc3bbe4d]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
