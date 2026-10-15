@@ -17,7 +17,13 @@ const {
   pollDeviceFlow,
   saveAuthToken,
   loadAuthToken,
-  clearAuthToken
+  clearAuthToken,
+  saveAccount,
+  getActiveAccount,
+  listAccounts,
+  switchAccount,
+  removeAccount,
+  clearAllAccounts
 } = require('./src/core/auth');
 
 const {
@@ -110,8 +116,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/auth/current-user' && req.method === 'GET') {
+    currentAuth = getActiveAccount(USER_DATA_DIR);
     if (currentAuth && currentAuth.token) {
-      return sendJson(res, { loggedIn: true, user: currentAuth.user, method: 'stored' });
+      return sendJson(res, {
+        loggedIn: true,
+        user: currentAuth.user,
+        accounts: listAccounts(USER_DATA_DIR),
+        method: 'stored'
+      });
     }
 
     // Fallback qua gh CLI nếu có
@@ -120,12 +132,57 @@ const server = http.createServer(async (req, res) => {
         const ghToken = stdout.trim();
         const val = await validateToken(ghToken);
         if (val.valid) {
-          currentAuth = { token: ghToken, user: val.user };
-          saveAuthToken(USER_DATA_DIR, ghToken, val.user, null);
-          return sendJson(res, { loggedIn: true, user: val.user, method: 'gh-cli' });
+          saveAccount(USER_DATA_DIR, ghToken, val.user, null);
+          currentAuth = getActiveAccount(USER_DATA_DIR);
+          return sendJson(res, {
+            loggedIn: true,
+            user: val.user,
+            accounts: listAccounts(USER_DATA_DIR),
+            method: 'gh-cli'
+          });
         }
       }
-      sendJson(res, { loggedIn: false, user: null });
+      sendJson(res, { loggedIn: false, user: null, accounts: [] });
+    });
+  }
+
+  if (pathname === '/api/auth/accounts' && req.method === 'GET') {
+    currentAuth = getActiveAccount(USER_DATA_DIR);
+    return sendJson(res, {
+      success: true,
+      accounts: listAccounts(USER_DATA_DIR),
+      activeAccount: currentAuth?.user?.login || null
+    });
+  }
+
+  if (pathname === '/api/auth/switch-account' && req.method === 'POST') {
+    const { login } = await parseBody(req);
+    if (!login) {
+      return sendJson(res, { success: false, error: 'Thiếu username tài khoản cần chuyển' }, 400);
+    }
+    const switched = switchAccount(USER_DATA_DIR, login);
+    if (!switched) {
+      return sendJson(res, { success: false, error: 'Không tìm thấy tài khoản để chuyển' }, 404);
+    }
+    currentAuth = getActiveAccount(USER_DATA_DIR);
+    return sendJson(res, {
+      success: true,
+      user: currentAuth?.user || null,
+      accounts: listAccounts(USER_DATA_DIR)
+    });
+  }
+
+  if (pathname === '/api/auth/remove-account' && req.method === 'POST') {
+    const { login } = await parseBody(req);
+    if (!login) {
+      return sendJson(res, { success: false, error: 'Thiếu username cần xóa' }, 400);
+    }
+    removeAccount(USER_DATA_DIR, login);
+    currentAuth = getActiveAccount(USER_DATA_DIR);
+    return sendJson(res, {
+      success: true,
+      user: currentAuth?.user || null,
+      accounts: listAccounts(USER_DATA_DIR)
     });
   }
 
@@ -139,9 +196,14 @@ const server = http.createServer(async (req, res) => {
     if (!val.valid) {
       return sendJson(res, { success: false, error: val.error });
     }
-    currentAuth = { token: cleanToken, user: val.user };
-    saveAuthToken(USER_DATA_DIR, cleanToken, val.user, null);
-    return sendJson(res, { success: true, user: val.user, scopes: val.scopes });
+    saveAccount(USER_DATA_DIR, cleanToken, val.user, null);
+    currentAuth = getActiveAccount(USER_DATA_DIR);
+    return sendJson(res, {
+      success: true,
+      user: val.user,
+      scopes: val.scopes,
+      accounts: listAccounts(USER_DATA_DIR)
+    });
   }
 
   if (pathname === '/api/auth/login-gh' && req.method === 'POST') {
@@ -154,9 +216,9 @@ const server = http.createServer(async (req, res) => {
       if (!val.valid) {
         return sendJson(res, { success: false, error: val.error });
       }
-      currentAuth = { token, user: val.user };
-      saveAuthToken(USER_DATA_DIR, token, val.user, null);
-      sendJson(res, { success: true, user: val.user });
+      saveAccount(USER_DATA_DIR, token, val.user, null);
+      currentAuth = getActiveAccount(USER_DATA_DIR);
+      sendJson(res, { success: true, user: val.user, accounts: listAccounts(USER_DATA_DIR) });
     });
     return;
   }
@@ -172,21 +234,22 @@ const server = http.createServer(async (req, res) => {
     if (pollRes.status === 'granted' && pollRes.accessToken) {
       const val = await validateToken(pollRes.accessToken);
       if (val.valid) {
-        currentAuth = { token: pollRes.accessToken, user: val.user };
-        saveAuthToken(USER_DATA_DIR, pollRes.accessToken, val.user, null);
-        return sendJson(res, { status: 'granted', user: val.user });
+        saveAccount(USER_DATA_DIR, pollRes.accessToken, val.user, null);
+        currentAuth = getActiveAccount(USER_DATA_DIR);
+        return sendJson(res, { status: 'granted', user: val.user, accounts: listAccounts(USER_DATA_DIR) });
       }
     }
     return sendJson(res, pollRes);
   }
 
   if (pathname === '/api/auth/logout' && req.method === 'POST') {
-    clearAuthToken(USER_DATA_DIR);
+    clearAllAccounts(USER_DATA_DIR);
     currentAuth = null;
-    return sendJson(res, { success: true });
+    return sendJson(res, { success: true, accounts: [] });
   }
 
   if (pathname === '/api/repos' && req.method === 'GET') {
+    currentAuth = getActiveAccount(USER_DATA_DIR);
     if (currentAuth && currentAuth.token) {
       const result = await fetchUserReposWithToken(currentAuth.token, 100);
       if (result.success) return sendJson(res, result);
@@ -199,15 +262,10 @@ const server = http.createServer(async (req, res) => {
           return sendJson(res, { success: true, repos });
         } catch (e) {}
       }
-      // Mock repos fallback
+      // Không hardcode mock repo nữa - trả về danh sách rỗng nếu tài khoản chưa có repo
       sendJson(res, {
         success: true,
-        repos: [
-          { nameWithOwner: 'buithelong-all/DanhTinh-Lab', description: 'Nền tảng kiểm định và tự động hóa hồ sơ danh tính', isPrivate: true, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/caevietnam.vn', description: 'Cổng thông tin chuyên ngành CAE & mô phỏng', isPrivate: false, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/git-runner-hub', description: '1-Click GitHub Actions Self-Hosted Runner Manager', isPrivate: false, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/kungfutalk-monorepo', description: 'Hệ sinh thái học máy và đàm thoại ngoại ngữ', isPrivate: true, updatedAt: new Date().toISOString() }
-        ]
+        repos: []
       });
     });
     return;
@@ -216,10 +274,10 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/local-runners' && req.method === 'GET') {
     exec(`wsl.exe -d Ubuntu -u root --exec bash -c "ls -d /opt/actions-runner* 2>/dev/null"`, (err, stdout) => {
       if (err || !stdout.trim()) {
-        return sendJson(res, ['DanhTinh-Lab', 'caevietnam.vn']);
+        return sendJson(res, []);
       }
-      const dirs = stdout.trim().split('\n').map(d => d.trim().replace('/opt/actions-runner-', '').replace('/opt/actions-runner', 'caevietnam.vn'));
-      sendJson(res, dirs);
+      const dirs = stdout.trim().split('\n').map(d => d.trim().replace('/opt/actions-runner-', '').replace('/opt/actions-runner', ''));
+      sendJson(res, dirs.filter(Boolean));
     });
     return;
   }

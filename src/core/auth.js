@@ -197,9 +197,9 @@ async function pollDeviceFlow(deviceCode, clientId = GITHUB_CLIENT_ID) {
 }
 
 /**
- * Lưu trữ token an toàn (SafeStorage hoặc file mã hóa)
+ * Lưu trữ hoặc cập nhật một tài khoản vào kho đa tài khoản (auth-accounts.json)
  */
-function saveAuthToken(userDataDir, token, user, safeStorage = null) {
+function saveAccount(userDataDir, token, user, safeStorage = null) {
   try {
     if (!fs.existsSync(userDataDir)) {
       fs.mkdirSync(userDataDir, { recursive: true });
@@ -208,7 +208,38 @@ function saveAuthToken(userDataDir, token, user, safeStorage = null) {
     console.warn('Cannot create userData dir:', e.message);
   }
 
-  const filePath = path.join(userDataDir, 'auth-session.json');
+  const filePath = path.join(userDataDir, 'auth-accounts.json');
+  let store = { activeAccount: null, accounts: {} };
+
+  // Đọc store hiện có nếu có
+  if (fs.existsSync(filePath)) {
+    try {
+      store = JSON.parse(fs.readFileSync(filePath, 'utf8')) || store;
+      if (!store.accounts) store.accounts = {};
+    } catch (e) {
+      console.warn('Corrupt auth-accounts.json, resetting store');
+    }
+  } else {
+    // Migration từ auth-session.json cũ nếu có
+    const legacyPath = path.join(userDataDir, 'auth-session.json');
+    if (fs.existsSync(legacyPath)) {
+      try {
+        const legacy = JSON.parse(fs.readFileSync(legacyPath, 'utf8'));
+        if (legacy && legacy.token && legacy.user && legacy.user.login) {
+          store.accounts[legacy.user.login] = {
+            login: legacy.user.login,
+            name: legacy.user.name || legacy.user.login,
+            avatarUrl: legacy.user.avatarUrl || '',
+            token: legacy.token,
+            isEncrypted: !!legacy.isEncrypted,
+            addedAt: legacy.updatedAt || new Date().toISOString()
+          };
+          store.activeAccount = legacy.user.login;
+        }
+      } catch (e) {}
+    }
+  }
+
   let tokenData = token;
   let isEncrypted = false;
 
@@ -221,21 +252,221 @@ function saveAuthToken(userDataDir, token, user, safeStorage = null) {
     }
   }
 
-  const payload = {
+  const login = user?.login || 'unknown_user';
+  store.accounts[login] = {
+    login,
+    name: user?.name || login,
+    avatarUrl: user?.avatarUrl || '',
+    id: user?.id || 0,
+    email: user?.email || '',
+    htmlUrl: user?.htmlUrl || `https://github.com/${login}`,
     token: tokenData,
     isEncrypted,
-    user: user || null,
-    updatedAt: new Date().toISOString()
+    addedAt: new Date().toISOString()
   };
 
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+  store.activeAccount = login;
+
+  fs.writeFileSync(filePath, JSON.stringify(store, null, 2), 'utf8');
+
+  // Đồng bộ sang legacy file để các module khác tương thích
+  try {
+    fs.writeFileSync(
+      path.join(userDataDir, 'auth-session.json'),
+      JSON.stringify({ token: tokenData, isEncrypted, user, updatedAt: new Date().toISOString() }, null, 2),
+      'utf8'
+    );
+  } catch (e) {}
+
   return true;
 }
 
 /**
- * Đọc token đã lưu
+ * Lấy tài khoản đang active hiện tại (kèm token đã giải mã)
  */
-function loadAuthToken(userDataDir, safeStorage = null) {
+function getActiveAccount(userDataDir, safeStorage = null) {
+  const filePath = path.join(userDataDir, 'auth-accounts.json');
+  let store = null;
+
+  if (fs.existsSync(filePath)) {
+    try {
+      store = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (e) {}
+  }
+
+  // Fallback từ legacy nếu store chưa có
+  if (!store || !store.accounts || Object.keys(store.accounts).length === 0) {
+    const legacy = loadLegacyAuthToken(userDataDir, safeStorage);
+    if (legacy && legacy.user) {
+      return legacy;
+    }
+    return null;
+  }
+
+  const activeLogin = store.activeAccount || Object.keys(store.accounts)[0];
+  const acc = store.accounts[activeLogin];
+  if (!acc) return null;
+
+  let token = acc.token;
+  if (acc.isEncrypted && safeStorage && typeof safeStorage.decryptString === 'function') {
+    try {
+      const buffer = Buffer.from(token, 'base64');
+      token = safeStorage.decryptString(buffer);
+    } catch (e) {
+      console.warn('Failed to decrypt token for account:', acc.login);
+    }
+  }
+
+  return {
+    token,
+    user: {
+      login: acc.login,
+      name: acc.name,
+      avatarUrl: acc.avatarUrl,
+      id: acc.id,
+      email: acc.email,
+      htmlUrl: acc.htmlUrl,
+      initials: (acc.name || acc.login).charAt(0).toUpperCase()
+    },
+    addedAt: acc.addedAt
+  };
+}
+
+/**
+ * Liệt kê tất cả tài khoản đã kết nối (không kèm token vì lý do bảo mật)
+ */
+function listAccounts(userDataDir) {
+  const filePath = path.join(userDataDir, 'auth-accounts.json');
+  if (!fs.existsSync(filePath)) {
+    const legacy = loadLegacyAuthToken(userDataDir, null);
+    if (legacy && legacy.user) {
+      return [{ ...legacy.user, isActive: true }];
+    }
+    return [];
+  }
+
+  try {
+    const store = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const accounts = store.accounts || {};
+    const activeLogin = store.activeAccount;
+
+    return Object.values(accounts).map(acc => ({
+      login: acc.login,
+      name: acc.name,
+      avatarUrl: acc.avatarUrl,
+      id: acc.id,
+      email: acc.email,
+      htmlUrl: acc.htmlUrl,
+      isActive: acc.login === activeLogin,
+      addedAt: acc.addedAt
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+/**
+ * Chuyển tài khoản active sang một tài khoản khác
+ */
+function switchAccount(userDataDir, targetLogin) {
+  const filePath = path.join(userDataDir, 'auth-accounts.json');
+  if (!fs.existsSync(filePath)) return false;
+
+  try {
+    const store = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!store.accounts || !store.accounts[targetLogin]) {
+      return false;
+    }
+    store.activeAccount = targetLogin;
+    fs.writeFileSync(filePath, JSON.stringify(store, null, 2), 'utf8');
+
+    // Đồng bộ sang legacy file
+    const acc = store.accounts[targetLogin];
+    try {
+      fs.writeFileSync(
+        path.join(userDataDir, 'auth-session.json'),
+        JSON.stringify({
+          token: acc.token,
+          isEncrypted: acc.isEncrypted,
+          user: {
+            login: acc.login,
+            name: acc.name,
+            avatarUrl: acc.avatarUrl,
+            id: acc.id,
+            email: acc.email,
+            htmlUrl: acc.htmlUrl
+          },
+          updatedAt: new Date().toISOString()
+        }, null, 2),
+        'utf8'
+      );
+    } catch (e) {}
+
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Xóa một tài khoản khỏi danh sách
+ */
+function removeAccount(userDataDir, targetLogin) {
+  const filePath = path.join(userDataDir, 'auth-accounts.json');
+  if (!fs.existsSync(filePath)) return false;
+
+  try {
+    const store = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (!store.accounts || !store.accounts[targetLogin]) return false;
+
+    delete store.accounts[targetLogin];
+
+    const remainingLogins = Object.keys(store.accounts);
+    if (store.activeAccount === targetLogin) {
+      store.activeAccount = remainingLogins.length > 0 ? remainingLogins[0] : null;
+    }
+
+    fs.writeFileSync(filePath, JSON.stringify(store, null, 2), 'utf8');
+
+    // Cập nhật legacy
+    if (store.activeAccount) {
+      const activeAcc = store.accounts[store.activeAccount];
+      fs.writeFileSync(
+        path.join(userDataDir, 'auth-session.json'),
+        JSON.stringify({
+          token: activeAcc.token,
+          isEncrypted: activeAcc.isEncrypted,
+          user: activeAcc,
+          updatedAt: new Date().toISOString()
+        }, null, 2),
+        'utf8'
+      );
+    } else {
+      try { fs.unlinkSync(path.join(userDataDir, 'auth-session.json')); } catch (e) {}
+    }
+
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Xóa toàn bộ tài khoản (Full Logout)
+ */
+function clearAllAccounts(userDataDir) {
+  try {
+    const p1 = path.join(userDataDir, 'auth-accounts.json');
+    const p2 = path.join(userDataDir, 'auth-session.json');
+    if (fs.existsSync(p1)) fs.unlinkSync(p1);
+    if (fs.existsSync(p2)) fs.unlinkSync(p2);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function loadLegacyAuthToken(userDataDir, safeStorage = null) {
   const filePath = path.join(userDataDir, 'auth-session.json');
   if (!fs.existsSync(filePath)) return null;
 
@@ -255,25 +486,21 @@ function loadAuthToken(userDataDir, safeStorage = null) {
       updatedAt: payload.updatedAt
     };
   } catch (err) {
-    console.warn('Load auth token error:', err.message);
     return null;
   }
 }
 
-/**
- * Xóa session (Logout)
- */
+// Backward-compatible wrappers
+function saveAuthToken(userDataDir, token, user, safeStorage = null) {
+  return saveAccount(userDataDir, token, user, safeStorage);
+}
+
+function loadAuthToken(userDataDir, safeStorage = null) {
+  return getActiveAccount(userDataDir, safeStorage);
+}
+
 function clearAuthToken(userDataDir) {
-  const filePath = path.join(userDataDir, 'auth-session.json');
-  if (fs.existsSync(filePath)) {
-    try {
-      fs.unlinkSync(filePath);
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-  return true;
+  return clearAllAccounts(userDataDir);
 }
 
 module.exports = {
@@ -287,5 +514,12 @@ module.exports = {
   pollDeviceFlow,
   saveAuthToken,
   loadAuthToken,
-  clearAuthToken
+  clearAuthToken,
+  saveAccount,
+  getActiveAccount,
+  listAccounts,
+  switchAccount,
+  removeAccount,
+  clearAllAccounts
 };
+

@@ -17,8 +17,15 @@ function getRunnerChecksum(platformType, arch) {
   return RUNNER_CHECKSUMS[key] || null;
 }
 
-function getServiceUnitName(repoSlug) {
-  return `actions.runner.buithelong-all-${repoSlug}.local-${repoSlug}.service`;
+function getServiceUnitName(repoSlug, owner = '') {
+  if (typeof repoSlug === 'string' && repoSlug.includes('/')) {
+    const parts = repoSlug.split('/');
+    owner = parts[0];
+    repoSlug = parts[1];
+  }
+  const cleanSlug = typeof repoSlug === 'string' ? repoSlug.replace(/[^a-zA-Z0-9_-]/g, '-') : 'repo';
+  const prefix = owner ? `${owner}-${cleanSlug}` : cleanSlug;
+  return `actions.runner.${prefix}.local-${cleanSlug}.service`;
 }
 
 function parseRunnerList(apiJsonList, targetRepoSlug) {

@@ -172,9 +172,124 @@ body::before {
   border: 1px solid var(--border);
   border-radius: 999px;
   transition: all 0.2s ease;
+  position: relative;
 }
 .account-chip:hover {
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Multi-Account Dropdown Menu (GRH-201..203) */
+.account-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6), 0 0 14px rgba(56, 189, 248, 0.12);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.account-dropdown-header {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--dim);
+}
+.account-dropdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.account-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.account-item-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.account-item-row.active {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.35);
+}
+.account-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.account-item-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.account-item-names {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.account-item-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.account-item-handle {
+  font-size: 10px;
+  color: var(--accent-cyan);
+  font-family: 'JetBrains Mono', monospace;
+}
+.account-item-check {
+  font-size: 12px;
+  color: var(--accent-green);
+  font-weight: 700;
+}
+.account-dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+.account-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+.account-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+.account-dropdown-item.text-red {
+  color: #f87171;
 }
 .account-avatar {
   width: 28px;

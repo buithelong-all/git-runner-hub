@@ -32,13 +32,13 @@
       <div class="header-right">
         <!-- Account Card / Login trigger -->
         <div class="account-chip" id="accountChip">
-          <div class="account-avatar" id="accountAvatar">?</div>
-          <div class="account-meta">
+          <div class="account-avatar" id="accountAvatar" onclick="toggleAccountDropdown(event)" style="cursor: pointer;">?</div>
+          <div class="account-meta" onclick="toggleAccountDropdown(event)" style="cursor: pointer;">
             <div class="account-name" id="accountName">Đang kiểm tra...</div>
             <div class="account-handle" id="accountHandle">@...</div>
           </div>
           <div class="account-dropdown-actions" id="accountActions">
-            <button class="btn-chip-action" id="btnSwitchAccount" onclick="openLoginModal()" title="Đổi tài khoản">
+            <button class="btn-chip-action" id="btnSwitchAccount" onclick="toggleAccountDropdown(event)" title="Đổi tài khoản / Quản lý danh tính">
               <span>🔄</span> Đổi
             </button>
             <button class="btn-chip-action btn-logout" id="btnLogout" onclick="handleLogout()" title="Đăng xuất">
@@ -48,6 +48,21 @@
           <div class="account-login-prompt" id="accountLoginPrompt" style="display: none;">
             <button class="btn-login-trigger" onclick="openLoginModal()">
               <span>🔑</span> Kết nối GitHub
+            </button>
+          </div>
+
+          <!-- Multi-Account Dropdown Menu (GRH-201..203) -->
+          <div class="account-dropdown-menu" id="accountDropdownMenu" style="display: none;">
+            <div class="account-dropdown-header">Tài khoản đã kết nối</div>
+            <div class="account-dropdown-list" id="accountDropdownList">
+              <!-- Render động danh sách tài khoản -->
+            </div>
+            <div class="account-dropdown-divider"></div>
+            <button class="account-dropdown-item btn-add-account" onclick="handleAddAnotherAccount()">
+              <span>➕</span> Thêm tài khoản GitHub khác...
+            </button>
+            <button class="account-dropdown-item text-red" onclick="handleLogout()">
+              <span>🚪</span> Đăng xuất tài khoản này
             </button>
           </div>
         </div>
@@ -111,7 +126,7 @@
         <div class="quick-scan-wrapper">
           <div class="url-input-container">
             <span class="url-icon">🔗</span>
-            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/buithelong-all/DanhTinh-Lab)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter') handleScanUrl()">
+            <input type="text" id="repoUrlInput" class="url-input" placeholder="Dán link GitHub (ví dụ: https://github.com/your-account/your-repo)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" onkeydown="if(event.key==='Enter') handleScanUrl()">
           </div>
           <button class="btn-gradient-action" id="btnScanRepo" onclick="handleScanUrl()">
             <span>⚡ Kiểm tra &amp; Kích hoạt</span>

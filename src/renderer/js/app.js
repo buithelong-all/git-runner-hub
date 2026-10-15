@@ -82,26 +82,50 @@ if (typeof window.gitRunnerAPI === 'undefined') {
         return { success: true };
       }
     },
+    getAccounts: async () => {
+      try {
+        const res = await fetch('/api/auth/accounts');
+        if (res.ok) return await res.json();
+      } catch (e) {}
+      return { success: true, accounts: [] };
+    },
+    switchAccount: async (login) => {
+      try {
+        const res = await fetch('/api/auth/switch-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login })
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
+    removeAccount: async (login) => {
+      try {
+        const res = await fetch('/api/auth/remove-account', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ login })
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
     fetchRepos: async () => {
       try {
         const res = await fetch('/api/repos');
         if (res.ok) return await res.json();
       } catch (e) {}
-      return {
-        success: true,
-        repos: [
-          { nameWithOwner: 'buithelong-all/git-runner-hub', description: '1-Click GitHub Actions Self-Hosted Runner Manager', isPrivate: false, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/DanhTinh-Lab', description: 'Nền tảng kiểm định và tự động hóa hồ sơ danh tính', isPrivate: true, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/caevietnam.vn', description: 'Cổng thông tin chuyên ngành CAE & mô phỏng', isPrivate: false, updatedAt: new Date().toISOString() }
-        ]
-      };
+      return { success: true, repos: [] };
     },
     getLocalRunners: async () => {
       try {
         const res = await fetch('/api/local-runners');
         if (res.ok) return await res.json();
       } catch (e) {}
-      return ['DanhTinh-Lab', 'caevietnam.vn', 'git-runner-hub'];
+      return [];
     },
     checkRunnerStatus: async (repo) => {
       try {
@@ -229,9 +253,9 @@ const isElectron = true;
 function getSavedActivatedRepos() {
   try {
     const raw = localStorage.getItem('git_runner_activated_repos');
-    return raw ? JSON.parse(raw) : ['buithelong-all/git-runner-hub', 'buithelong-all/DanhTinh-Lab', 'buithelong-all/caevietnam.vn'];
+    return raw ? JSON.parse(raw) : [];
   } catch (e) {
-    return ['buithelong-all/git-runner-hub', 'buithelong-all/DanhTinh-Lab', 'buithelong-all/caevietnam.vn'];
+    return [];
   }
 }
 
@@ -288,6 +312,8 @@ function appendTerminalLog(logChunk) {
   }
 }
 
+let currentAccounts = [];
+
 async function loadAccountProfile() {
   try {
     const authStatus = await window.gitRunnerAPI.getCurrentUser();
@@ -299,6 +325,8 @@ async function loadAccountProfile() {
 
     if (authStatus && authStatus.loggedIn && authStatus.user) {
       currentUser = authStatus.user;
+      currentAccounts = authStatus.accounts || [];
+
       if (nameEl) nameEl.textContent = currentUser.name || currentUser.login;
       if (handleEl) handleEl.textContent = `@${currentUser.login}`;
 
@@ -313,12 +341,14 @@ async function loadAccountProfile() {
       if (actionsEl) actionsEl.style.display = 'flex';
       if (promptEl) promptEl.style.display = 'none';
 
+      renderAccountDropdown();
       await refreshRepos();
     } else {
       currentUser = null;
+      currentAccounts = [];
       if (avatarEl) avatarEl.innerHTML = '?';
-      if (nameEl) nameEl.textContent = 'Chưa đăng nhập';
-      if (handleEl) handleEl.textContent = 'Bấm kết nối tài khoản';
+      if (nameEl) nameEl.textContent = 'Chưa kết nối';
+      if (handleEl) handleEl.textContent = 'Bấm kết nối GitHub';
       if (actionsEl) actionsEl.style.display = 'none';
       if (promptEl) promptEl.style.display = 'block';
 
@@ -332,6 +362,85 @@ async function loadAccountProfile() {
   }
 }
 
+function toggleAccountDropdown(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('accountDropdownMenu');
+  if (!menu) return;
+  const isHidden = menu.style.display === 'none' || !menu.style.display;
+  menu.style.display = isHidden ? 'flex' : 'none';
+
+  if (isHidden) {
+    renderAccountDropdown();
+    // Đóng khi click ngoài
+    const closeListener = (evt) => {
+      if (!menu.contains(evt.target) && !document.getElementById('accountChip')?.contains(evt.target)) {
+        menu.style.display = 'none';
+        document.removeEventListener('click', closeListener);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeListener), 10);
+  }
+}
+
+function renderAccountDropdown() {
+  const listEl = document.getElementById('accountDropdownList');
+  if (!listEl) return;
+
+  if (!currentAccounts || currentAccounts.length === 0) {
+    if (currentUser) {
+      currentAccounts = [{ ...currentUser, isActive: true }];
+    }
+  }
+
+  listEl.innerHTML = currentAccounts.map(acc => {
+    const isActive = acc.login === currentUser?.login;
+    const avatar = acc.avatarUrl
+      ? `<img class="account-item-avatar" src="${acc.avatarUrl}" alt="${acc.login}" />`
+      : `<div class="account-item-avatar" style="display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--accent-blue);color:#fff;">${acc.login.charAt(0).toUpperCase()}</div>`;
+
+    return `
+      <div class="account-item-row ${isActive ? 'active' : ''}" onclick="handleSwitchAccount('${acc.login}')">
+        <div class="account-item-info">
+          ${avatar}
+          <div class="account-item-names">
+            <span class="account-item-name">${acc.name || acc.login}</span>
+            <span class="account-item-handle">@${acc.login}</span>
+          </div>
+        </div>
+        ${isActive ? '<span class="account-item-check" title="Đang chọn">✓</span>' : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleSwitchAccount(login) {
+  const menu = document.getElementById('accountDropdownMenu');
+  if (menu) menu.style.display = 'none';
+
+  if (currentUser && currentUser.login === login) {
+    return; // Đang là tài khoản hiện tại
+  }
+
+  appendTerminalLog(`> [Account Switch] Đang chuyển sang tài khoản @${login}...`);
+  try {
+    const res = await window.gitRunnerAPI.switchAccount(login);
+    if (res.success) {
+      appendTerminalLog(`✅ [Account Switch] Đã chuyển sang tài khoản @${login} thành công!`);
+      await loadAccountProfile();
+    } else {
+      appendTerminalLog(`❌ [Account Switch] Thất bại: ${res.error}`);
+    }
+  } catch (e) {
+    appendTerminalLog(`❌ [Account Switch] Lỗi: ${e.message}`);
+  }
+}
+
+function handleAddAnotherAccount() {
+  const menu = document.getElementById('accountDropdownMenu');
+  if (menu) menu.style.display = 'none';
+  openLoginModal();
+}
+
 function renderEmptyLoginState() {
   const grid = document.getElementById('reposGrid');
   if (!grid) return;
@@ -340,10 +449,10 @@ function renderEmptyLoginState() {
       <div style="font-size: 36px;">🔒</div>
       <h3 style="color: var(--text); font-size: 18px;">Chưa kết nối tài khoản GitHub</h3>
       <p style="max-width: 440px; font-size: 13px; color: var(--dim); line-height: 1.5;">
-        Đăng nhập GitHub để GitRunnerHub tự động nạp repository, phát hiện file workflow CI và gắn runner an toàn.
+        Chào mừng bạn đến với <strong>GitRunnerHub</strong>! Kết nối tài khoản GitHub của bạn để bắt đầu quét repository, chuyển hướng workflow CI và chạy test miễn phí ngay trên máy tính của bạn.
       </p>
       <button class="btn-primary-action" onclick="openLoginModal()" style="margin-top: 8px;">
-        <span>🔑</span> Kết nối ngay
+        <span>🔑</span> Kết nối tài khoản GitHub (1-Click)
       </button>
     </div>
   `;
@@ -935,13 +1044,13 @@ function handleScanUrl() {
   const input = document.getElementById('repoUrlInput');
   const val = input ? input.value.trim() : '';
   if (!val) {
-    alert('Vui lòng dán link GitHub Repository (ví dụ: https://github.com/buithelong-all/DanhTinh-Lab)');
+    alert('Vui lòng dán link GitHub Repository (ví dụ: https://github.com/owner/repository)');
     return;
   }
 
   let repoName = val.replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '').trim();
   if (!repoName.includes('/')) {
-    alert('Định dạng link GitHub không hợp lệ. Ví dụ đúng: buithelong-all/DanhTinh-Lab');
+    alert('Định dạng link GitHub không hợp lệ. Ví dụ đúng: owner/repository');
     return;
   }
 

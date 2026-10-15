@@ -39,3 +39,68 @@ test('Auth Core - User Data Formatting (GRH-202)', () => {
   assert.equal(formatted2.name, 'buithelong');
   assert.equal(formatted2.initials, 'B');
 });
+
+test('Auth Core - Multi-Account Lifecycle & Switching (GRH-201..203)', () => {
+  const os = require('os');
+  const path = require('path');
+  const fs = require('fs');
+  const {
+    saveAccount,
+    getActiveAccount,
+    listAccounts,
+    switchAccount,
+    removeAccount,
+    clearAllAccounts
+  } = require('../src/core/auth');
+
+  const tmpDir = path.join(os.tmpdir(), `grh-test-auth-${Date.now()}`);
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  try {
+    // 1. Lưu tài khoản đầu tiên (userA)
+    const userA = { login: 'developer-a', name: 'Alice Developer', avatarUrl: 'https://example.com/a.png' };
+    saveAccount(tmpDir, 'token-alice-123', userA);
+
+    let active = getActiveAccount(tmpDir);
+    assert.equal(active.user.login, 'developer-a');
+    assert.equal(active.token, 'token-alice-123');
+
+    // 2. Lưu tài khoản thứ hai (userB)
+    const userB = { login: 'developer-b', name: 'Bob Developer', avatarUrl: 'https://example.com/b.png' };
+    saveAccount(tmpDir, 'token-bob-456', userB);
+
+    active = getActiveAccount(tmpDir);
+    assert.equal(active.user.login, 'developer-b'); // Vừa add nên thành active
+    assert.equal(active.token, 'token-bob-456');
+
+    // 3. Liệt kê danh sách tài khoản
+    const accounts = listAccounts(tmpDir);
+    assert.equal(accounts.length, 2);
+    const accA = accounts.find(a => a.login === 'developer-a');
+    const accB = accounts.find(a => a.login === 'developer-b');
+    assert.ok(accA);
+    assert.ok(accB);
+    assert.equal(accA.isActive, false);
+    assert.equal(accB.isActive, true);
+
+    // 4. Chuyển đổi tài khoản (Switch Account)
+    const switched = switchAccount(tmpDir, 'developer-a');
+    assert.equal(switched, true);
+    active = getActiveAccount(tmpDir);
+    assert.equal(active.user.login, 'developer-a');
+    assert.equal(active.token, 'token-alice-123');
+
+    // 5. Xóa tài khoản active (Remove Account)
+    removeAccount(tmpDir, 'developer-a');
+    active = getActiveAccount(tmpDir);
+    assert.equal(active.user.login, 'developer-b'); // Tự động fallback về tài khoản còn lại
+
+    // 6. Xóa toàn bộ (Full Logout)
+    clearAllAccounts(tmpDir);
+    assert.equal(getActiveAccount(tmpDir), null);
+    assert.deepEqual(listAccounts(tmpDir), []);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+

@@ -27,7 +27,7 @@ function parseRepoInput(input) {
     return Result.failure(
       'ERR_REPO_FORMAT',
       `Định dạng repository không hợp lệ: "${input}"`,
-      'Repository phải có dạng "owner/repo" (ví dụ: buithelong-all/caevietnam.vn).'
+      'Repository phải có dạng "owner/repo" (ví dụ: owner/my-repo).'
     );
   }
 
