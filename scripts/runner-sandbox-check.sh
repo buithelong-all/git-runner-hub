@@ -8,7 +8,9 @@ digest=$(printf %s "$1" | tr '[:upper:]' '[:lower:]' | sha256sum | cut -c1-12)
 [[ $(id -un) == ghr-$digest && $(id -u) != 0 ]] || exit 3
 deny_read() { if test -r "$1"; then printf 'SANDBOX_READ_ALLOWED=%s\n' "$1" >&2; exit 4; fi; }
 deny_traverse() { if test -x "$1"; then printf 'SANDBOX_TRAVERSE_ALLOWED=%s\n' "$1" >&2; exit 4; fi; }
-for dir in /mnt /media /run/WSL /usr/lib/wsl /run/dbus /run/user /home /root; do deny_traverse "$dir"; done
+for dir in /mnt/c /mnt/d /mnt/wslg /media /run/WSL /usr/lib/wsl /run/dbus /run/user /home /root; do deny_traverse "$dir"; done
+test -r /etc/resolv.conf
+test ! -w /etc/resolv.conf
 for file in /init /proc/1/root/mnt/d /proc/1/root/opt/actions-runner/.credentials /opt/actions-runner/.credentials /opt/actions-runner-buithelong-all-DanhTinh-Lab/.credentials; do deny_read "$file"; done
 deny_read '/mnt/d/Chatgpt/Github/Danh Tinh Lab/app/package.json'
 for dir in /opt/actions-runner-$slug-$digest /var/lib/gitrunnerhub/home-$slug-$digest /var/lib/gitrunnerhub/work-$slug-$digest; do

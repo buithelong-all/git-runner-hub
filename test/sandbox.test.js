@@ -14,9 +14,10 @@ test('sandbox renders a repository-scoped service boundary without host mutation
   assert.equal(settings.CapabilityBoundingSet, '');
   assert.equal(settings.KillMode, 'control-group');
   assert.equal(settings.ReadWritePaths, '/opt/actions-runner-buithelong-all-git-runner-hub-3605dc3bbe4d /var/lib/gitrunnerhub/home-buithelong-all-git-runner-hub-3605dc3bbe4d /var/lib/gitrunnerhub/work-buithelong-all-git-runner-hub-3605dc3bbe4d');
-  assert.equal(settings.TemporaryFileSystem, '/opt:ro /var/lib/gitrunnerhub:ro');
+  assert.equal(settings.TemporaryFileSystem, '/opt:ro /var/lib/gitrunnerhub:ro /mnt:ro');
+  assert.equal(settings.BindReadOnlyPaths, '/mnt/wsl/resolv.conf');
   assert.equal(settings.BindPaths, settings.ReadWritePaths);
-  for (const blocked of ['/mnt','/media','/init','/run/WSL','/usr/lib/wsl']) {
+  for (const blocked of ['/media','/init','/run/WSL','/usr/lib/wsl']) {
     assert.ok(settings.InaccessiblePaths.split(' ').includes('-'+blocked), blocked);
   }
   assert.match(settings.ExecStartPre, /sandbox-check\.sh/);

@@ -26,8 +26,9 @@ render() {
     'ProtectControlGroups=yes' 'RestrictNamespaces=yes' 'RestrictSUIDSGID=yes' \
     'RestrictRealtime=yes' 'LockPersonality=yes' 'SystemCallArchitectures=native' \
     'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
-    'InaccessiblePaths=-/mnt -/media -/init -/run/WSL -/usr/lib/wsl -/run/user -/run/dbus -/run/systemd/private -/run/docker.sock -/proc/sys/fs/binfmt_misc' \
-    'TemporaryFileSystem=/opt:ro /var/lib/gitrunnerhub:ro' \
+    'InaccessiblePaths=-/media -/init -/run/WSL -/usr/lib/wsl -/run/user -/run/dbus -/run/systemd/private -/run/docker.sock -/proc/sys/fs/binfmt_misc' \
+    'TemporaryFileSystem=/opt:ro /var/lib/gitrunnerhub:ro /mnt:ro' \
+    'BindReadOnlyPaths=/mnt/wsl/resolv.conf' \
     "BindPaths=$runner $home_dir $work" \
     "ReadWritePaths=$runner $home_dir $work" \
     "Environment=HOME=$home_dir PATH=/usr/local/bin:/usr/bin:/bin" \

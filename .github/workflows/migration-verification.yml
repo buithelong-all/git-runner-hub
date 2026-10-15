@@ -12,9 +12,7 @@ concurrency:
 
 jobs:
   verify:
-    # Host gate closed after Windows mount cross-access was observed.
-    # Re-enable the same-repository check only after approved host remediation.
-    if: ${{ false }}
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [grh-3605dc3bbe4d]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -44,5 +42,21 @@ jobs:
           if sudo -n -l >/dev/null 2>&1; then echo UNEXPECTED_SUDO_PRIVILEGE >&2; exit 1; fi
           printf 'SOURCE_SHA=%s\nRUNNER_NAME=%s\n' "$EXPECTED_SHA" "$OBSERVED_RUNNER"
           id
+      - name: Verify sandbox from the actual job process
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/runner-sandbox-check.sh buithelong-all/git-runner-hub
+          probe=/var/lib/gitrunnerhub/work-buithelong-all-git-runner-hub-3605dc3bbe4d/interop-probe.exe
+          test -f "$probe"
+          if timeout 10 "$probe" /d /c 'exit 0' > /tmp/grh-interop-probe.log 2>&1; then
+            echo WINDOWS_INTEROP_EXECUTION_ALLOWED >&2
+            exit 1
+          else
+            result=$?
+            test "$result" != 124
+            test "$result" != 137
+            echo "WINDOWS_INTEROP_DENIED_RC=$result"
+          fi
       - name: Run validation
         run: bash scripts/ci/validate.sh --ci
