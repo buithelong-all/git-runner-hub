@@ -6,7 +6,7 @@ const { Result } = require('./result');
 
 // Checksum SHA256 chính thức từ GitHub Releases cho Actions Runner v2.338.0
 const RUNNER_CHECKSUMS = {
-  'linux-x64': '7ea4d6350325d975a507851d7fe31d17d59850cfdf15bfbc1309d43d1a8e104d',
+  'linux-x64': 'af4b794c1bc41d73d40535e3fe092a39f9679cd8d965954c2aca25a05ca41d32',
   'linux-arm64': '3f5509f103b417e089d70c497ca261ec0a187123fae890c00078b660c6085a6a',
   'osx-arm64': 'a6e3557e2df283bc486adbc4ce42ec5304192b02787e9c3cf0c1ea354bbbe5ea',
   'osx-x64': 'e26a267926b487e4dbcb7b312781440d995c73562a149a4e39ec2f87c33ca8bf'
