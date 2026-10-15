@@ -7,6 +7,7 @@ let deviceVerificationUri = 'https://github.com/login/device';
 let currentDiffMode = 'side-by-side'; // 'side-by-side' | 'unified'
 let isTerminalOpen = false;
 let isTerminalExpanded = false;
+let repoWorkflowSummaries = {}; // Map lưu kết quả quét workflow thực tế: { [repo]: summary }
 
 // Browser Web API Adapter (cho phép chạy mượt mà trên Chrome/Edge khi mở qua HTTP)
 if (typeof window.gitRunnerAPI === 'undefined') {
@@ -89,9 +90,9 @@ if (typeof window.gitRunnerAPI === 'undefined') {
       return {
         success: true,
         repos: [
+          { nameWithOwner: 'buithelong-all/git-runner-hub', description: '1-Click GitHub Actions Self-Hosted Runner Manager', isPrivate: false, updatedAt: new Date().toISOString() },
           { nameWithOwner: 'buithelong-all/DanhTinh-Lab', description: 'Nền tảng kiểm định và tự động hóa hồ sơ danh tính', isPrivate: true, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/caevietnam.vn', description: 'Cổng thông tin chuyên ngành CAE & mô phỏng', isPrivate: false, updatedAt: new Date().toISOString() },
-          { nameWithOwner: 'buithelong-all/git-runner-hub', description: '1-Click GitHub Actions Self-Hosted Runner Manager', isPrivate: false, updatedAt: new Date().toISOString() }
+          { nameWithOwner: 'buithelong-all/caevietnam.vn', description: 'Cổng thông tin chuyên ngành CAE & mô phỏng', isPrivate: false, updatedAt: new Date().toISOString() }
         ]
       };
     },
@@ -100,7 +101,7 @@ if (typeof window.gitRunnerAPI === 'undefined') {
         const res = await fetch('/api/local-runners');
         if (res.ok) return await res.json();
       } catch (e) {}
-      return ['DanhTinh-Lab', 'caevietnam.vn'];
+      return ['DanhTinh-Lab', 'caevietnam.vn', 'git-runner-hub'];
     },
     checkRunnerStatus: async (repo) => {
       try {
@@ -129,6 +130,50 @@ if (typeof window.gitRunnerAPI === 'undefined') {
         return await res.json();
       } catch (e) {
         return { success: false, error: e.message, workflows: [] };
+      }
+    },
+    getWorkflowSummary: async (repo) => {
+      try {
+        const res = await fetch(`/api/workflows/summary?repo=${encodeURIComponent(repo)}`);
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
+    batchScanWorkflows: async (repos) => {
+      try {
+        const res = await fetch('/api/workflows/batch-scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repos })
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
+    batchPatchWorkflows: async (repos) => {
+      try {
+        const res = await fetch('/api/workflows/batch-patch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repos })
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
+    },
+    batchRollbackWorkflows: async (repos) => {
+      try {
+        const res = await fetch('/api/workflows/batch-rollback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repos })
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
       }
     },
     commitWorkflowPatch: async (params) => {
@@ -178,15 +223,15 @@ if (typeof window.gitRunnerAPI === 'undefined') {
   };
 }
 
-const isElectron = true; // Kích hoạt toàn bộ tính năng giao diện đầy đủ
+const isElectron = true;
 
 // Quản lý trạng thái lưu trữ Local Storage
 function getSavedActivatedRepos() {
   try {
     const raw = localStorage.getItem('git_runner_activated_repos');
-    return raw ? JSON.parse(raw) : ['buithelong-all/DanhTinh-Lab', 'buithelong-all/caevietnam.vn'];
+    return raw ? JSON.parse(raw) : ['buithelong-all/git-runner-hub', 'buithelong-all/DanhTinh-Lab', 'buithelong-all/caevietnam.vn'];
   } catch (e) {
-    return ['buithelong-all/DanhTinh-Lab', 'buithelong-all/caevietnam.vn'];
+    return ['buithelong-all/git-runner-hub', 'buithelong-all/DanhTinh-Lab', 'buithelong-all/caevietnam.vn'];
   }
 }
 
@@ -203,7 +248,7 @@ function saveActivatedRepo(repoName) {
 // ==============================================================================
 
 async function init() {
-  console.log('[Renderer] Initializing GitRunnerHub Cyber-Dark...');
+  console.log('[Renderer] Initializing GitRunnerHub Cyber-Dark Batch Edition...');
   
   try {
     const sysInfo = await window.gitRunnerAPI.getSystemInfo();
@@ -215,12 +260,11 @@ async function init() {
     console.warn('System info error:', e);
   }
 
-  // Đăng ký nhận realtime log từ Electron hoặc API
+  // Realtime log
   window.gitRunnerAPI.onLogUpdate((logChunk) => {
     appendTerminalLog(logChunk);
   });
 
-  // Nạp profile người dùng
   await loadAccountProfile();
 }
 
@@ -279,6 +323,7 @@ async function loadAccountProfile() {
       if (promptEl) promptEl.style.display = 'block';
 
       allRepos = [];
+      repoWorkflowSummaries = {};
       updateStats();
       renderEmptyLoginState();
     }
@@ -295,7 +340,7 @@ function renderEmptyLoginState() {
       <div style="font-size: 36px;">🔒</div>
       <h3 style="color: var(--text); font-size: 18px;">Chưa kết nối tài khoản GitHub</h3>
       <p style="max-width: 440px; font-size: 13px; color: var(--dim); line-height: 1.5;">
-        Đăng nhập GitHub để GitRunnerHub tự động tải repository, phát hiện file workflow CI và gắn runner an toàn.
+        Đăng nhập GitHub để GitRunnerHub tự động nạp repository, phát hiện file workflow CI và gắn runner an toàn.
       </p>
       <button class="btn-primary-action" onclick="openLoginModal()" style="margin-top: 8px;">
         <span>🔑</span> Kết nối ngay
@@ -396,7 +441,7 @@ async function handleLogout() {
 }
 
 // ==============================================================================
-// REPOSITORIES REFRESH, SEARCH & STATS
+// REPOSITORIES REFRESH, WORKFLOW ACCURACY & BATCH OPERATIONS
 // ==============================================================================
 
 async function refreshRepos() {
@@ -430,7 +475,7 @@ async function refreshRepos() {
         updated: formatDate(r.updatedAt),
         runnerOnline: isLocallyActive,
         runnerName: isLocallyActive ? (r.nameWithOwner.includes('caevietnam.vn') ? 'long-local-ci' : `local-${repoSlug}`) : null,
-        routingStatus: isLocallyActive ? 'Attached' : 'Mismatch', // Mismatch = cần routing sang self-hosted
+        routingStatus: 'Checking...',
         verifiedRuns: isLocallyActive ? 1 : 0
       };
     });
@@ -438,7 +483,13 @@ async function refreshRepos() {
     handleSearch();
     updateStats();
 
-    // Đối soát online status bất đồng bộ
+    // 1. Quét trạng thái workflow thực tế ngay lập tức cho các repo ưu tiên (đặc biệt DanhTinh-Lab, git-runner-hub, caevietnam.vn)
+    const priorityRepos = allRepos.slice(0, 8);
+    priorityRepos.forEach(repo => {
+      fetchAndApplyWorkflowSummary(repo.name);
+    });
+
+    // 2. Đối soát online status bất đồng bộ
     allRepos.forEach(repo => {
       if (repo.runnerOnline) {
         window.gitRunnerAPI.checkRunnerStatus(repo.name).then(status => {
@@ -457,6 +508,211 @@ async function refreshRepos() {
   }
 }
 
+async function fetchAndApplyWorkflowSummary(repoName) {
+  try {
+    const res = await window.gitRunnerAPI.getWorkflowSummary(repoName);
+    if (res.success && res.summary) {
+      repoWorkflowSummaries[repoName] = res.summary;
+      const target = allRepos.find(r => r.name === repoName);
+      if (target) {
+        target.routingStatus = res.summary.routing;
+        target.needsPatch = res.summary.needsPatch;
+      }
+      updateStats();
+      handleSearch();
+    }
+  } catch (e) {
+    console.warn('Lỗi lấy summary cho ' + repoName, e);
+  }
+}
+
+// BATCH ACTION 1: Quét toàn bộ 43 repositories
+async function handleBatchScanAll() {
+  const btn = document.getElementById('btnBatchScan');
+  const icon = document.getElementById('batchScanIcon');
+  const statusText = document.getElementById('batchStatusText');
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.className = 'spinning';
+  if (statusText) statusText.textContent = `Đang quét tất cả ${allRepos.length} repositories từ GitHub API...`;
+
+  openTerminalDrawer();
+  appendTerminalLog(`> [Batch Scan] Bắt đầu quét workflow của ${allRepos.length} repositories...`);
+
+  const repoNames = allRepos.map(r => r.name);
+  const res = await window.gitRunnerAPI.batchScanWorkflows(repoNames);
+
+  if (btn) btn.disabled = false;
+  if (icon) icon.className = '';
+
+  if (res.success && res.summaries) {
+    repoWorkflowSummaries = { ...repoWorkflowSummaries, ...res.summaries };
+    allRepos.forEach(r => {
+      const summary = res.summaries[r.name];
+      if (summary) {
+        r.routingStatus = summary.routing;
+        r.needsPatch = summary.needsPatch;
+      }
+    });
+
+    const selfHostedCount = Object.values(res.summaries).filter(s => s.routing === 'SELF_HOSTED').length;
+    const githubHostedCount = Object.values(res.summaries).filter(s => s.routing === 'GITHUB_HOSTED' || s.routing === 'MIXED').length;
+    const noCiCount = Object.values(res.summaries).filter(s => s.routing === 'NO_CI').length;
+
+    if (statusText) {
+      statusText.innerHTML = `✅ Đã quét xong: <b style="color:#34d399;">${selfHostedCount} Self-Hosted</b> · <b style="color:#fbbf24;">${githubHostedCount} Cần sửa</b> · <b style="color:var(--dim);">${noCiCount} Chưa có CI</b>`;
+    }
+
+    appendTerminalLog(`> [Batch Scan] Hoàn tất! Phát hiện ${githubHostedCount} repo cần sửa sang Self-Hosted.`);
+    updateStats();
+    handleSearch();
+  } else {
+    if (statusText) statusText.textContent = `❌ Lỗi khi quét: ${res.error || 'Kiểm tra token'}`;
+    appendTerminalLog(`> [Batch Scan] ❌ Lỗi: ${res.error}`);
+  }
+}
+
+// BATCH ACTION 2: 1-Click Sửa hết sang Self-Hosted
+async function handleBatchPatchAll() {
+  const reposToPatch = allRepos.filter(r => {
+    const summary = repoWorkflowSummaries[r.name];
+    return summary ? summary.needsPatch : true; // Mặc định nếu chưa quét thì patch
+  }).map(r => r.name);
+
+  if (reposToPatch.length === 0) {
+    alert('Tất cả các repository đã trỏ về Self-Hosted runner rồi! Không cần sửa thêm.');
+    return;
+  }
+
+  if (!confirm(`Bạn có chắc chắn muốn 1-Click TỰ ĐỘNG SỬA ${reposToPatch.length} repositories sang Self-Hosted Runner?\n(Các file workflow sẽ được commit với [self-hosted, Linux, X64, grh-<repo>])`)) {
+    return;
+  }
+
+  const btn = document.getElementById('btnBatchPatch');
+  const statusText = document.getElementById('batchStatusText');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinning">🔄</span> Đang sửa hàng loạt...`;
+  }
+  if (statusText) statusText.textContent = `Đang 1-Click sửa ${reposToPatch.length} repositories...`;
+
+  openTerminalDrawer();
+  appendTerminalLog(`> [Batch Patch] Bắt đầu commit sửa workflow cho ${reposToPatch.length} repositories...`);
+
+  const res = await window.gitRunnerAPI.batchPatchWorkflows(reposToPatch);
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `<span>🚀</span> Sửa hết sang Self-Hosted`;
+  }
+
+  if (res.success) {
+    appendTerminalLog(`> ✅ [Batch Patch] Đã hoàn tất sửa hàng loạt!`);
+    if (statusText) statusText.innerHTML = `🎉 Đã 1-Click sửa xong toàn bộ repositories!`;
+    await handleBatchScanAll(); // Quét lại để cập nhật trạng thái ngay
+  } else {
+    appendTerminalLog(`> ❌ [Batch Patch] Lỗi: ${res.error}`);
+    alert('Lỗi: ' + res.error);
+  }
+}
+
+// BATCH ACTION 3: 1-Click Hoàn tác tất cả về GitHub Actions (ubuntu-latest)
+async function handleBatchRollbackAll() {
+  const reposToRollback = allRepos.map(r => r.name);
+
+  if (!confirm(`Bạn có chắc chắn muốn 1-Click HOÀN TÁC TẤT CẢ các file workflow trở lại chạy trên GitHub Actions (ubuntu-latest)?`)) {
+    return;
+  }
+
+  const btn = document.getElementById('btnBatchRollback');
+  const statusText = document.getElementById('batchStatusText');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinning">🔄</span> Đang hoàn tác...`;
+  }
+  if (statusText) statusText.textContent = `Đang hoàn tác toàn bộ workflows về ubuntu-latest...`;
+
+  openTerminalDrawer();
+  appendTerminalLog(`> [Batch Rollback] Bắt đầu rollback tất cả file workflow về ubuntu-latest...`);
+
+  const res = await window.gitRunnerAPI.batchRollbackWorkflows(reposToRollback);
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = `<span>↩️</span> Sửa lại về GitHub Action`;
+  }
+
+  if (res.success) {
+    appendTerminalLog(`> ↩️ [Batch Rollback] Đã hoàn tác tất cả file workflow về ubuntu-latest thành công!`);
+    if (statusText) statusText.innerHTML = `↩️ Đã hoàn tác toàn bộ workflows về GitHub Actions!`;
+    await handleBatchScanAll();
+  } else {
+    appendTerminalLog(`> ❌ [Batch Rollback] Lỗi: ${res.error}`);
+    alert('Lỗi rollback: ' + res.error);
+  }
+}
+
+// Sửa nhanh 1 repo ngay từ card (không cần mở modal)
+async function quickPatchSingleRepo(repoName) {
+  openTerminalDrawer();
+  appendTerminalLog(`> [Quick Patch] Đang quét và sửa workflow cho ${repoName}...`);
+
+  const wfRes = await window.gitRunnerAPI.fetchWorkflows(repoName);
+  if (!wfRes.success || !wfRes.workflows || wfRes.workflows.length === 0) {
+    alert(`Không tìm thấy file workflow nào trong ${repoName}`);
+    return;
+  }
+
+  const label = wfRes.suggestedLabel || (repoName.includes('/') ? `grh-${repoName.split('/')[1].toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : 'grh-local-runner');
+  let patchedCount = 0;
+
+  for (const wf of wfRes.workflows) {
+    if (wf.needsPatch) {
+      const commitRes = await window.gitRunnerAPI.commitWorkflowPatch({
+        repoFullName: repoName,
+        filePath: wf.path,
+        patchedContent: wf.patchedContent,
+        sha: wf.sha,
+        message: `ci: route ${wf.name} to self-hosted runner [1-click quick patch]`
+      });
+      if (commitRes.success) patchedCount++;
+    }
+  }
+
+  appendTerminalLog(`> ✅ [Quick Patch] Đã sửa xong ${patchedCount} workflow cho ${repoName}!`);
+  await fetchAndApplyWorkflowSummary(repoName);
+}
+
+// Rollback nhanh 1 repo ngay từ card
+async function quickRollbackSingleRepo(repoName) {
+  if (!confirm(`Bạn có muốn hoàn tác các workflow của '${repoName}' trở lại chạy trên ubuntu-latest?`)) return;
+
+  openTerminalDrawer();
+  appendTerminalLog(`> [Quick Rollback] Đang hoàn tác workflow cho ${repoName}...`);
+
+  const wfRes = await window.gitRunnerAPI.fetchWorkflows(repoName);
+  if (!wfRes.success || !wfRes.workflows) {
+    alert('Không tải được workflow của repo');
+    return;
+  }
+
+  let rolledBackCount = 0;
+  for (const wf of wfRes.workflows) {
+    if (wf.routing === 'SELF_HOSTED' || wf.routing === 'MIXED') {
+      const res = await window.gitRunnerAPI.rollbackWorkflowPatch({
+        repoFullName: repoName,
+        filePath: wf.path,
+        originalContent: wf.originalContent,
+        sha: wf.sha
+      });
+      if (res.success) rolledBackCount++;
+    }
+  }
+
+  appendTerminalLog(`> ↩️ [Quick Rollback] Đã hoàn tác ${rolledBackCount} workflow cho ${repoName} về ubuntu-latest!`);
+  await fetchAndApplyWorkflowSummary(repoName);
+}
+
 function updateStats() {
   const totalReposEl = document.getElementById('statTotalRepos');
   const onlineRunnersEl = document.getElementById('statOnlineRunners');
@@ -464,9 +720,24 @@ function updateStats() {
   const verifiedRunsEl = document.getElementById('statVerifiedRuns');
 
   const onlineCount = allRepos.filter(r => r.runnerOnline).length;
-  // Warning/Mismatch: các repo mà workflow chưa chuyển sang self-hosted
-  const mismatchCount = allRepos.filter(r => !r.runnerOnline || r.routingStatus === 'Mismatch').length;
-  const verifiedCount = allRepos.filter(r => r.verifiedRuns > 0).length;
+  
+  // Tính chính xác số lượng Warnings / Mismatch dựa vào dữ liệu quét thực tế
+  let mismatchCount = 0;
+  allRepos.forEach(r => {
+    const summary = repoWorkflowSummaries[r.name];
+    if (summary) {
+      if (summary.routing === 'GITHUB_HOSTED' || summary.routing === 'MIXED' || summary.needsPatch) {
+        mismatchCount++;
+      }
+    } else {
+      if (!r.runnerOnline) mismatchCount++;
+    }
+  });
+
+  const verifiedCount = allRepos.filter(r => {
+    const summary = repoWorkflowSummaries[r.name];
+    return (summary && summary.routing === 'SELF_HOSTED') || r.verifiedRuns > 0;
+  }).length;
 
   if (totalReposEl) totalReposEl.textContent = allRepos.length < 10 ? `0${allRepos.length}` : allRepos.length;
   if (onlineRunnersEl) onlineRunnersEl.textContent = onlineCount < 10 ? `0${onlineCount}` : onlineCount;
@@ -519,7 +790,11 @@ function handleSearch() {
   if (currentFilter === 'online') {
     filtered = filtered.filter(r => r.runnerOnline);
   } else if (currentFilter === 'mismatch') {
-    filtered = filtered.filter(r => !r.runnerOnline || r.routingStatus === 'Mismatch');
+    filtered = filtered.filter(r => {
+      const summary = repoWorkflowSummaries[r.name];
+      if (summary) return summary.routing === 'GITHUB_HOSTED' || summary.routing === 'MIXED' || summary.needsPatch;
+      return !r.runnerOnline;
+    });
   } else if (currentFilter === 'unconfigured') {
     filtered = filtered.filter(r => !r.runnerOnline);
   }
@@ -549,14 +824,46 @@ function renderRepos(repos) {
     const card = document.createElement('div');
     card.className = `repo-card ${repo.runnerOnline ? 'active-runner' : ''}`;
 
-    // 4-Tier Badges (Lead Architect Directives)
+    // ĐỐI SOÁT TRẠNG THÁI THỰC TẾ TỪ GITHUB
+    const summary = repoWorkflowSummaries[repo.name];
+    let ciBadgeHtml = '';
+    let quickActionBtnHtml = '';
+
+    if (summary) {
+      if (summary.routing === 'SELF_HOSTED') {
+        ciBadgeHtml = `<span class="badge-ci-status self-hosted">🟢 Self-Hosted (${summary.activeLabel})</span>`;
+        quickActionBtnHtml = `
+          <button class="btn-action-sm btn-quick-rollback" onclick="quickRollbackSingleRepo('${repo.name}')" title="1-Click hoàn tác workflow quay lại ubuntu-latest">
+            <span>↩️</span> Về GitHub Actions
+          </button>
+        `;
+      } else if (summary.routing === 'GITHUB_HOSTED' || summary.routing === 'MIXED') {
+        ciBadgeHtml = `<span class="badge-ci-status github-hosted">⚠️ Dùng ubuntu-latest</span>`;
+        quickActionBtnHtml = `
+          <button class="btn-action-sm btn-quick-patch" onclick="quickPatchSingleRepo('${repo.name}')" title="1-Click sửa sang [self-hosted, Linux, X64, ${summary.activeLabel}]">
+            <span>🚀</span> Sửa sang Self-Hosted
+          </button>
+        `;
+      } else {
+        ciBadgeHtml = `<span class="badge-ci-status no-ci">⚪ Chưa có CI</span>`;
+      }
+    } else {
+      // Khi chưa quét tóm tắt
+      if (repo.runnerOnline) {
+        ciBadgeHtml = `<span class="badge-ci-status self-hosted">🟢 Local Ready</span>`;
+        quickActionBtnHtml = `
+          <button class="btn-action-sm btn-quick-patch" onclick="quickPatchSingleRepo('${repo.name}')" title="Sửa sang Self-Hosted">
+            <span>🚀</span> Sửa sang Self-Hosted
+          </button>
+        `;
+      } else {
+        ciBadgeHtml = `<span class="badge-ci-status github-hosted">⚠️ Cần kiểm tra</span>`;
+      }
+    }
+
     const statusBadge = repo.runnerOnline 
       ? `<span class="badge-status online"><span class="pulse-dot"></span> Runner Online</span>`
       : `<span class="badge-status offline">Chưa kích hoạt</span>`;
-
-    const routingBadge = repo.routingStatus === 'Attached'
-      ? `<span class="badge-status verified">✓ Attached</span>`
-      : `<span class="badge-status mismatch">⚠️ Mismatch</span>`;
 
     const privacyBadge = repo.isPrivate
       ? `<span class="badge-tag private">🔒 Private</span>`
@@ -564,8 +871,9 @@ function renderRepos(repos) {
 
     const actionButtons = repo.runnerOnline
       ? `
-        <button class="btn-action-sm btn-patch-cta" onclick="openWorkflowModal('${repo.name}')" title="So sánh YAML và 1-Click sửa sang Self-Hosted">
-          <span>🛠️</span> Sửa CI Workflow
+        ${quickActionBtnHtml}
+        <button class="btn-action-sm btn-patch-cta" onclick="openWorkflowModal('${repo.name}')" title="So sánh chi tiết Diff YAML">
+          <span>🛠️</span> Diff
         </button>
         <button class="btn-action-sm btn-test-run" onclick="openWorkflowModal('${repo.name}')" title="Test CI Run trực tiếp để kiểm chứng">
           <span>▶️</span> Test CI Run
@@ -581,11 +889,12 @@ function renderRepos(repos) {
         </button>
       `
       : `
+        ${quickActionBtnHtml}
         <button class="btn-action-sm btn-patch-cta" onclick="openWorkflowModal('${repo.name}')" title="Xem trước diff workflow">
-          <span>🛠️</span> Sửa CI Workflow
+          <span>🛠️</span> Diff
         </button>
         <button class="btn-action-sm btn-activate-cta" onclick="startSetup('${repo.name}')">
-          <span>⚡</span> Kích hoạt Local Runner
+          <span>⚡</span> Kích hoạt Runner
         </button>
       `;
 
@@ -598,7 +907,7 @@ function renderRepos(repos) {
             </span>
             <div class="repo-badges-row">
               ${privacyBadge}
-              ${routingBadge}
+              ${ciBadgeHtml}
             </div>
           </div>
           ${statusBadge}
@@ -648,7 +957,6 @@ async function lifecycleAction(action, repoName) {
     if (!confirm(`Bạn có chắc chắn muốn HỦY và GỠ BỎ Local Runner cho '${repoName}'?`)) return;
   }
 
-  // Tự động mở Live Terminal Drawer để người dùng quan sát trực tiếp
   openTerminalDrawer();
   appendTerminalLog(`> [Lifecycle] Bắt đầu thực thi lệnh '${action}' cho ${repoName}...`);
 
@@ -662,7 +970,6 @@ async function lifecycleAction(action, repoName) {
       if (target) {
         target.runnerOnline = false;
         target.runnerName = null;
-        target.routingStatus = 'Mismatch';
       }
       updateStats();
       handleSearch();
@@ -700,8 +1007,8 @@ async function startSetup(repoName) {
     if (target) {
       target.runnerOnline = true;
       target.runnerName = `local-${repoName.replace('/', '-')}`;
-      target.routingStatus = 'Attached';
     }
+    await fetchAndApplyWorkflowSummary(repoName);
     updateStats();
     handleSearch();
   } else {
@@ -840,7 +1147,6 @@ function switchDiffMode(mode) {
     if (btnSide) btnSide.classList.remove('active');
   }
 
-  // Re-render body with new diff mode
   if (currentModalRepo) {
     renderWorkflowsList(currentModalRepo, currentModalWorkflows);
   }
@@ -919,7 +1225,7 @@ function renderWorkflowsList(repoName, workflows, defaultLabel = '') {
 
     const runsOnDesc = wf.runsOnLines.map(r => `Dòng ${r.lineNumber}: <code>${escapeHtml(r.lineContent)}</code>`).join('<br>');
 
-    // TẠO KHỐI VISUAL DIFF (SIDE-BY-SIDE HOẶC UNIFIED THEO CHẾ ĐỘ)
+    // TẠO KHỐI VISUAL DIFF (SIDE-BY-SIDE HOẶC UNIFIED)
     let diffHtml = '';
     if (wf.diffs && wf.diffs.length > 0) {
       if (currentDiffMode === 'side-by-side') {
@@ -1058,6 +1364,8 @@ async function handleCommitWorkflowPatch(repoName, filePath, sha, index) {
         btn.disabled = true;
       }
 
+      await fetchAndApplyWorkflowSummary(repoName);
+
       setTimeout(() => {
         loadRepoWorkflows(repoName, customLabel);
       }, 2000);
@@ -1112,6 +1420,9 @@ async function handleRollbackWorkflow(repoName, filePath, sha, index) {
           ↩️ <b>Đã hoàn tác thành công!</b> File workflow đã quay lại chạy trên <code>ubuntu-latest</code>.
         </div>
       `;
+
+      await fetchAndApplyWorkflowSummary(repoName);
+
       setTimeout(() => {
         loadRepoWorkflows(repoName);
       }, 1500);
@@ -1249,5 +1560,5 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-// Chạy khởi tạo ứng dụng
+// Khởi chạy ứng dụng
 init();

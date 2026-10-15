@@ -119,6 +119,25 @@
         </div>
       </section>
 
+      <!-- Batch Actions Bar (Quét hết & Sửa hết & Hoàn tác hết) -->
+      <section class="batch-actions-section">
+        <div class="batch-left">
+          <span class="batch-title">⚡ Thao tác CI hàng loạt:</span>
+          <span class="batch-status-text" id="batchStatusText">Sẵn sàng quét 43 repositories</span>
+        </div>
+        <div class="batch-buttons">
+          <button class="btn-batch btn-batch-scan" id="btnBatchScan" onclick="handleBatchScanAll()" title="Quét file workflow của toàn bộ repositories để phát hiện trạng thái thực tế">
+            <span id="batchScanIcon">🔍</span> Quét tất cả CI
+          </button>
+          <button class="btn-batch btn-batch-patch" id="btnBatchPatch" onclick="handleBatchPatchAll()" title="Tự động 1-Click sửa toàn bộ workflow đang dùng ubuntu-latest sang Self-Hosted">
+            <span>🚀</span> Sửa hết sang Self-Hosted
+          </button>
+          <button class="btn-batch btn-batch-rollback" id="btnBatchRollback" onclick="handleBatchRollbackAll()" title="1-Click hoàn tác tất cả các file workflow quay lại GitHub Actions (ubuntu-latest)">
+            <span>↩️</span> Sửa lại về GitHub Action
+          </button>
+        </div>
+      </section>
+
       <!-- Controls: Search & Filter Tabs -->
       <section class="controls-toolbar">
         <div class="search-container">

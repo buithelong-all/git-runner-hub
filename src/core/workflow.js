@@ -448,6 +448,155 @@ async function fetchLatestWorkflowRunAndVerify(token, repoFullName, intendedRunn
   }
 }
 
+/**
+ * Quét tóm tắt nhanh trạng thái workflow của 1 repo
+ */
+async function scanRepoWorkflowSummary(token, repoFullName) {
+  const res = await fetchRepoWorkflows(token, repoFullName);
+  if (!res.success || !res.workflows || res.workflows.length === 0) {
+    return {
+      repoFullName,
+      hasWorkflows: false,
+      routing: 'NO_CI',
+      needsPatch: false,
+      workflowsCount: 0,
+      activeLabel: generateRepoLabel(repoFullName)
+    };
+  }
+
+  const workflows = res.workflows;
+  const anyNeedsPatch = workflows.some(w => w.needsPatch);
+  const allSelfHosted = workflows.every(w => w.routing === 'SELF_HOSTED');
+  const allGithubHosted = workflows.every(w => w.routing === 'GITHUB_HOSTED');
+
+  let overallRouting = 'MIXED';
+  if (allSelfHosted) overallRouting = 'SELF_HOSTED';
+  else if (allGithubHosted) overallRouting = 'GITHUB_HOSTED';
+
+  return {
+    repoFullName,
+    hasWorkflows: true,
+    routing: overallRouting,
+    needsPatch: anyNeedsPatch,
+    workflowsCount: workflows.length,
+    activeLabel: generateRepoLabel(repoFullName),
+    workflows: workflows.map(w => ({
+      name: w.name,
+      path: w.path,
+      routing: w.routing,
+      needsPatch: w.needsPatch
+    }))
+  };
+}
+
+/**
+ * Quét hàng loạt tất cả các repos với kiểm soát đồng thời (concurrency)
+ */
+async function batchScanWorkflows(token, repoList, onProgress = null) {
+  const results = {};
+  const queue = [...repoList];
+  const CONCURRENCY = 4;
+
+  async function worker() {
+    while (queue.length > 0) {
+      const repo = queue.shift();
+      if (!repo) break;
+      try {
+        const summary = await scanRepoWorkflowSummary(token, repo);
+        results[repo] = summary;
+        if (onProgress) onProgress(repo, summary, Object.keys(results).length, repoList.length);
+      } catch (err) {
+        results[repo] = {
+          repoFullName: repo,
+          hasWorkflows: false,
+          routing: 'ERROR',
+          error: err.message
+        };
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(CONCURRENCY, repoList.length) }, () => worker());
+  await Promise.all(workers);
+
+  return results;
+}
+
+/**
+ * 1-Click Sửa hàng loạt tất cả các repos sang Self-Hosted
+ */
+async function batchPatchWorkflows(token, repoList, onProgress = null) {
+  const results = [];
+  for (let i = 0; i < repoList.length; i++) {
+    const repo = repoList[i];
+    const wfRes = await fetchRepoWorkflows(token, repo);
+    if (!wfRes.success || !wfRes.workflows) {
+      results.push({ repo, success: false, error: wfRes.error || 'Không tải được workflow' });
+      continue;
+    }
+
+    const customLabel = generateRepoLabel(repo);
+    let patchedCount = 0;
+
+    for (const wf of wfRes.workflows) {
+      if (wf.needsPatch) {
+        const patchRes = await commitWorkflowPatch(
+          token,
+          repo,
+          wf.path,
+          wf.patchedContent,
+          wf.sha,
+          null,
+          `ci: route ${wf.name} to self-hosted runner via GitRunnerHub [1-click patch all]`
+        );
+        if (patchRes.success) patchedCount++;
+      }
+    }
+
+    const itemResult = { repo, success: true, patchedCount };
+    results.push(itemResult);
+    if (onProgress) onProgress(repo, itemResult, i + 1, repoList.length);
+  }
+  return results;
+}
+
+/**
+ * 1-Click Hoàn tác hàng loạt tất cả các repos về GitHub Actions (ubuntu-latest)
+ */
+async function batchRollbackWorkflows(token, repoList, onProgress = null) {
+  const results = [];
+  for (let i = 0; i < repoList.length; i++) {
+    const repo = repoList[i];
+    const wfRes = await fetchRepoWorkflows(token, repo);
+    if (!wfRes.success || !wfRes.workflows) {
+      results.push({ repo, success: false, error: wfRes.error || 'Không tải được workflow' });
+      continue;
+    }
+
+    let rolledBackCount = 0;
+    for (const wf of wfRes.workflows) {
+      if (wf.routing === 'SELF_HOSTED' || wf.routing === 'MIXED') {
+        const rolledBackContent = generateRollbackPatch(wf.originalContent);
+        const rollbackRes = await commitWorkflowPatch(
+          token,
+          repo,
+          wf.path,
+          rolledBackContent,
+          wf.sha,
+          null,
+          `ci: rollback ${wf.name} to ubuntu-latest via GitRunnerHub [1-click rollback all]`
+        );
+        if (rollbackRes.success) rolledBackCount++;
+      }
+    }
+
+    const itemResult = { repo, success: true, rolledBackCount };
+    results.push(itemResult);
+    if (onProgress) onProgress(repo, itemResult, i + 1, repoList.length);
+  }
+  return results;
+}
+
 module.exports = {
   inspectWorkflow,
   findRunsOnLines,
@@ -460,7 +609,11 @@ module.exports = {
   fetchRepoWorkflows,
   commitWorkflowPatch,
   dispatchWorkflowRun,
-  fetchLatestWorkflowRunAndVerify
+  fetchLatestWorkflowRunAndVerify,
+  scanRepoWorkflowSummary,
+  batchScanWorkflows,
+  batchPatchWorkflows,
+  batchRollbackWorkflows
 };
 
 

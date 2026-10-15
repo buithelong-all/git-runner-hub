@@ -27,7 +27,11 @@ const {
   detectPlatformLabels,
   generateRollbackPatch,
   dispatchWorkflowRun,
-  fetchLatestWorkflowRunAndVerify
+  fetchLatestWorkflowRunAndVerify,
+  scanRepoWorkflowSummary,
+  batchScanWorkflows,
+  batchPatchWorkflows,
+  batchRollbackWorkflows
 } = require('./src/core/workflow');
 
 const PORT = process.env.PORT || 3000;
@@ -341,6 +345,62 @@ const server = http.createServer(async (req, res) => {
     const token = currentAuth?.token || null;
     const result = await fetchLatestWorkflowRunAndVerify(token, repoFullName, runnerName);
     return sendJson(res, result);
+  }
+
+  // Lấy tóm tắt trạng thái workflow thực tế của 1 repo
+  if (pathname === '/api/workflows/summary' && req.method === 'GET') {
+    const repoFullName = parsedUrl.searchParams.get('repo');
+    if (!repoFullName) {
+      return sendJson(res, { success: false, error: 'Thiếu tên repository' }, 400);
+    }
+    const token = currentAuth?.token || null;
+    const summary = await scanRepoWorkflowSummary(token, repoFullName);
+    return sendJson(res, { success: true, summary });
+  }
+
+  // Quét hàng loạt tất cả các workflows của danh sách repos
+  if (pathname === '/api/workflows/batch-scan' && req.method === 'POST') {
+    const { repos } = await parseBody(req);
+    const token = currentAuth?.token || null;
+    if (!token) {
+      return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub' }, 401);
+    }
+    if (!Array.isArray(repos) || repos.length === 0) {
+      return sendJson(res, { success: false, error: 'Danh sách repository rỗng' }, 400);
+    }
+
+    const summaries = await batchScanWorkflows(token, repos);
+    return sendJson(res, { success: true, summaries });
+  }
+
+  // 1-Click Sửa hàng loạt tất cả sang Self-Hosted
+  if (pathname === '/api/workflows/batch-patch' && req.method === 'POST') {
+    const { repos } = await parseBody(req);
+    const token = currentAuth?.token || null;
+    if (!token) {
+      return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub' }, 401);
+    }
+    if (!Array.isArray(repos) || repos.length === 0) {
+      return sendJson(res, { success: false, error: 'Danh sách repository rỗng' }, 400);
+    }
+
+    const results = await batchPatchWorkflows(token, repos);
+    return sendJson(res, { success: true, results });
+  }
+
+  // 1-Click Hoàn tác hàng loạt tất cả về GitHub Actions (ubuntu-latest)
+  if (pathname === '/api/workflows/batch-rollback' && req.method === 'POST') {
+    const { repos } = await parseBody(req);
+    const token = currentAuth?.token || null;
+    if (!token) {
+      return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub' }, 401);
+    }
+    if (!Array.isArray(repos) || repos.length === 0) {
+      return sendJson(res, { success: false, error: 'Danh sách repository rỗng' }, 400);
+    }
+
+    const results = await batchRollbackWorkflows(token, repos);
+    return sendJson(res, { success: true, results });
   }
 
   // ============================================================================

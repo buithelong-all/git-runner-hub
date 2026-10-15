@@ -459,6 +459,83 @@ body::before {
   box-shadow: 0 6px 20px rgba(6, 182, 212, 0.5);
 }
 
+/* BATCH ACTIONS TOOLBAR */
+.batch-actions-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.batch-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.batch-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.batch-status-text {
+  font-size: 12px;
+  color: var(--dim);
+  font-family: 'JetBrains Mono', monospace;
+}
+.batch-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.btn-batch {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+.btn-batch-scan {
+  background: var(--surface2);
+  border-color: var(--border);
+  color: var(--accent-cyan);
+}
+.btn-batch-scan:hover {
+  background: rgba(6, 182, 212, 0.15);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 12px var(--accent-cyan-glow);
+}
+.btn-batch-patch {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.2));
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #34d399;
+}
+.btn-batch-patch:hover {
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  color: #041d1a;
+  box-shadow: 0 4px 14px var(--accent-green-glow);
+}
+.btn-batch-rollback {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.btn-batch-rollback:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fff;
+  border-color: #ef4444;
+}
+
 /* 3. CONTROLS TOOLBAR (SEARCH & TABS) */
 .controls-toolbar {
   display: flex;
@@ -762,6 +839,53 @@ body::before {
 .btn-test-run:hover {
   background: rgba(56, 189, 248, 0.2);
   color: #fff;
+}
+
+.btn-quick-patch {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(6, 182, 212, 0.25));
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #34d399;
+}
+.btn-quick-patch:hover {
+  background: linear-gradient(135deg, #10b981, #06b6d4);
+  color: #03211c;
+  box-shadow: 0 0 12px var(--accent-green-glow);
+}
+
+.btn-quick-rollback {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+.btn-quick-rollback:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fff;
+  border-color: #ef4444;
+}
+
+.badge-ci-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.badge-ci-status.self-hosted {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  color: #34d399;
+}
+.badge-ci-status.github-hosted {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+.badge-ci-status.no-ci {
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  color: var(--dim);
 }
 
 .btn-activate-cta {
