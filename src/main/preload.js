@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld('gitRunnerAPI', {
   loginWithGhCli: () => ipcRenderer.invoke('auth:login-import-gh'),
   startDeviceFlow: () => ipcRenderer.invoke('auth:device-flow-start'),
   pollDeviceFlow: (deviceCode) => ipcRenderer.invoke('auth:device-flow-poll', deviceCode),
-  logout: () => ipcRenderer.invoke('auth:logout')
+  logout: () => ipcRenderer.invoke('auth:logout'),
+
+  // GRH-205..206: Workflow Discovery & 1-Click Patch Engine
+  fetchWorkflows: (repo, label) => ipcRenderer.invoke('workflow:fetch-repo-workflows', { repo, label }),
+  commitWorkflowPatch: (params) => ipcRenderer.invoke('workflow:commit-patch', params)
 });

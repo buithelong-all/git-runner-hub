@@ -119,6 +119,26 @@ if (typeof window.gitRunnerAPI === 'undefined') {
     },
     onLogUpdate: (callback) => {
       logListeners.push(callback);
+    },
+    fetchWorkflows: async (repo, label) => {
+      try {
+        const res = await fetch(`/api/workflows?repo=${encodeURIComponent(repo)}&label=${encodeURIComponent(label || '')}`);
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message, workflows: [] };
+      }
+    },
+    commitWorkflowPatch: async (params) => {
+      try {
+        const res = await fetch('/api/workflows/patch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(params)
+        });
+        return await res.json();
+      } catch (e) {
+        return { success: false, error: e.message };
+      }
     }
   };
 }
@@ -530,6 +550,9 @@ function renderRepos(repos) {
 
     const actionButtons = repo.runnerOnline
       ? `
+        <button class="btn-sm btn-workflow-patch" onclick="openWorkflowModal('${repo.name}')" title="Phát hiện dòng runs-on và 1-Click sửa sang Self-Hosted">
+          <span>🛠️</span> Sửa CI Workflow
+        </button>
         <button class="btn-sm btn-ci-history" onclick="openRepoActions('${repo.name}')" title="Mở trang GitHub Actions trên trình duyệt">
           <span>🚀</span> Lịch sử CI
         </button>
@@ -541,6 +564,9 @@ function renderRepos(repos) {
         </button>
       `
       : `
+        <button class="btn-sm btn-workflow-patch" onclick="openWorkflowModal('${repo.name}')" title="Xem trước và sửa dòng runs-on trong workflow">
+          <span>🛠️</span> Sửa CI Workflow
+        </button>
         <button class="btn-sm btn-install" onclick="startSetup('${repo.name}')">
           <span>⚡</span> Kích hoạt Local Runner
         </button>
@@ -688,6 +714,244 @@ function formatDate(isoStr) {
   } catch (e) {
     return 'Gần đây';
   }
+}
+
+// ==============================================================================
+// WORKFLOW DISCOVERY & 1-CLICK ATTACH MODAL LOGIC [GRH-205..206]
+// ==============================================================================
+
+let currentModalRepo = null;
+let currentModalWorkflows = [];
+
+function openWorkflowModal(repoName) {
+  currentModalRepo = repoName;
+  const modal = document.getElementById('workflowModal');
+  const title = document.getElementById('wfModalRepoTitle');
+  const subtitle = document.getElementById('wfModalRepoSubtitle');
+  const body = document.getElementById('wfModalBody');
+
+  title.textContent = `🛠️ Gắn Runner & Sửa CI Workflow cho ${repoName}`;
+  subtitle.innerHTML = `Tự động kiểm tra file YAML, phát hiện dòng <code>runs-on: ubuntu-latest</code> và 1-Click sửa sang Self-Hosted`;
+  body.innerHTML = `
+    <div style="text-align: center; padding: 40px; color: var(--text-dim);">
+      <span class="spinning" style="display:inline-block; font-size:24px; margin-bottom:10px;">🔄</span>
+      <div>Đang quét các file workflow trong <code>.github/workflows</code> của repo...</div>
+    </div>
+  `;
+
+  modal.style.display = 'flex';
+  modal.classList.add('active');
+
+  loadRepoWorkflows(repoName);
+}
+
+function closeWorkflowModal() {
+  const modal = document.getElementById('workflowModal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('active');
+  }
+  currentModalRepo = null;
+  currentModalWorkflows = [];
+}
+
+async function loadRepoWorkflows(repoName, customLabel = '') {
+  const body = document.getElementById('wfModalBody');
+  const res = await window.gitRunnerAPI.fetchWorkflows(repoName, customLabel);
+
+  if (!res.success) {
+    body.innerHTML = `
+      <div style="padding: 24px; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; color: #fca5a5;">
+        <h4 style="margin-bottom: 6px;">❌ Không thể tải danh sách workflow</h4>
+        <p style="font-size: 13px; line-height: 1.5;">${res.error || 'Vui lòng kiểm tra quyền hạn của GitHub token.'}</p>
+        <button class="btn-primary-action" onclick="openLoginModal()" style="margin-top: 14px;">
+          <span>🔑</span> Kiểm tra hoặc Cấp lại Token
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  currentModalWorkflows = res.workflows || [];
+
+  if (currentModalWorkflows.length === 0) {
+    body.innerHTML = `
+      <div style="padding: 30px; text-align: center; color: var(--text-muted); background: rgba(255, 255, 255, 0.02); border: 1px dashed var(--card-border); border-radius: 12px;">
+        <div style="font-size: 32px; margin-bottom: 10px;">📂</div>
+        <h4 style="color: var(--text-main); font-size: 15px; margin-bottom: 6px;">Chưa tìm thấy thư mục <code>.github/workflows</code></h4>
+        <p style="font-size: 13px; color: var(--text-dim); max-width: 480px; margin: 0 auto 16px auto; line-height: 1.5;">
+          Repository này chưa có cấu hình GitHub Actions CI nào. Bạn có thể thêm file workflow (ví dụ: <code>.github/workflows/ci.yml</code>) với cấu hình <code>runs-on: [self-hosted, Linux, X64]</code>.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  currentModalWorkflows.forEach((wf, idx) => {
+    const isSelfHosted = wf.routing === 'SELF_HOSTED';
+    const isMixed = wf.routing === 'MIXED';
+
+    let badgeClass = 'warning';
+    let badgeText = '⚠️ Đang dùng GitHub-Hosted (Cần sửa)';
+    if (isSelfHosted) {
+      badgeClass = 'success';
+      badgeText = '🟢 Đã gắn Self-Hosted Runner';
+    } else if (isMixed) {
+      badgeClass = 'info';
+      badgeText = '🔄 Đang dùng cả 2 loại';
+    }
+
+    const runsOnDesc = wf.runsOnLines.map(r => `Dòng ${r.lineNumber}: <code>${escapeHtml(r.lineContent)}</code>`).join('<br>');
+
+    // Tạo khối Diff Preview
+    let diffHtml = '';
+    if (wf.diffs && wf.diffs.length > 0) {
+      diffHtml = `
+        <div class="wf-diff-container">
+          <div style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px;">
+            So sánh thay đổi đề xuất (Diff Preview):
+          </div>
+          ${wf.diffs.map(d => {
+            let row = '';
+            if (d.original) {
+              row += `<div class="diff-line-del">- Dòng ${d.line || ''}: ${escapeHtml(d.original)}</div>`;
+            }
+            if (d.patched) {
+              row += `<div class="diff-line-add">+ Dòng ${d.line || ''}: ${escapeHtml(d.patched)}</div>`;
+            }
+            return row;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    const patchButtonHtml = wf.needsPatch ? `
+      <button class="btn-commit-patch" id="btnPatch_${idx}" onclick="handleCommitWorkflowPatch('${repoName}', '${wf.path}', '${wf.sha}', ${idx})">
+        <span>🚀</span> 1-Click Sửa & Đẩy lên GitHub
+      </button>
+    ` : `
+      <div style="font-size: 13px; color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+        <span>✓</span> Workflow đã trỏ về Self-Hosted, không cần sửa đổi!
+      </div>
+    `;
+
+    html += `
+      <div class="workflow-file-card" id="wfCard_${idx}">
+        <div class="workflow-file-header">
+          <div class="wf-path-group">
+            <span>📄</span>
+            <span>${wf.path}</span>
+          </div>
+          <span class="wf-badge ${badgeClass}">${badgeText}</span>
+        </div>
+
+        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.5;">
+          <b>Khai báo hiện tại:</b><br>${runsOnDesc || 'Không tìm thấy dòng runs-on'}
+        </div>
+
+        ${diffHtml}
+
+        <div class="wf-patch-footer">
+          <div class="wf-label-input-group">
+            <span>Label phụ (tùy chọn):</span>
+            <input type="text" class="wf-label-input" id="wfLabel_${idx}" placeholder="Ví dụ: my-runner" onchange="handleReloadDiffWithLabel('${repoName}', ${idx})" />
+          </div>
+          <div>
+            ${patchButtonHtml}
+          </div>
+        </div>
+
+        <div id="wfCommitStatus_${idx}" style="display: none;"></div>
+      </div>
+    `;
+  });
+
+  body.innerHTML = html;
+}
+
+async function handleReloadDiffWithLabel(repoName, index) {
+  const labelInput = document.getElementById(`wfLabel_${index}`);
+  const label = labelInput ? labelInput.value.trim() : '';
+  await loadRepoWorkflows(repoName, label);
+}
+
+async function handleCommitWorkflowPatch(repoName, filePath, sha, index) {
+  const wf = currentModalWorkflows[index];
+  if (!wf) return;
+
+  const btn = document.getElementById(`btnPatch_${index}`);
+  const statusBox = document.getElementById(`wfCommitStatus_${index}`);
+  const labelInput = document.getElementById(`wfLabel_${index}`);
+  const customLabel = labelInput ? labelInput.value.trim() : '';
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="spinning">🔄</span> Đang tạo commit qua GitHub API...`;
+  }
+
+  try {
+    const res = await window.gitRunnerAPI.commitWorkflowPatch({
+      repoFullName: repoName,
+      filePath: wf.path,
+      patchedContent: wf.patchedContent,
+      sha: wf.sha,
+      message: `ci: route ${wf.name} to self-hosted runner via GitRunnerHub [1-click patch]`
+    });
+
+    if (res.success) {
+      statusBox.style.display = 'flex';
+      statusBox.className = 'wf-commit-success-box';
+      const shortSha = res.commitSha ? res.commitSha.substring(0, 7) : 'mới';
+      const commitUrl = res.commitUrl || `https://github.com/${repoName}/commits`;
+
+      statusBox.innerHTML = `
+        <div>
+          🎉 <b>Thành công 100%!</b> Dòng <code>runs-on</code> đã được sửa thành <code>[self-hosted, Linux, X64]</code>.<br>
+          <span style="font-size: 11px; opacity: 0.85;">Commit: <code>${shortSha}</code> trên GitHub. Mọi lần push/PR tiếp theo sẽ tự động chạy trên máy của bạn!</span>
+        </div>
+        <a class="wf-commit-link" href="${commitUrl}" target="_blank">Xem trên GitHub ↗</a>
+      `;
+
+      if (btn) {
+        btn.innerHTML = `<span>✓</span> Đã sửa xong!`;
+        btn.disabled = true;
+      }
+
+      // Cập nhật lại badge sau 2s
+      setTimeout(() => {
+        loadRepoWorkflows(repoName, customLabel);
+      }, 2500);
+
+    } else {
+      statusBox.style.display = 'block';
+      statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+      statusBox.style.color = '#fca5a5';
+      statusBox.innerHTML = `❌ Lỗi khi commit: ${res.error || 'Không thể ghi file lên GitHub'}`;
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>🚀</span> Thử lại 1-Click Patch`;
+      }
+    }
+  } catch (err) {
+    statusBox.style.display = 'block';
+    statusBox.innerHTML = `❌ Lỗi kết nối: ${err.message}`;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `<span>🚀</span> Thử lại 1-Click Patch`;
+    }
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 init();

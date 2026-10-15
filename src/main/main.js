@@ -14,6 +14,11 @@ const {
   clearAuthToken
 } = require('../core/auth');
 
+const {
+  fetchRepoWorkflows,
+  commitWorkflowPatch
+} = require('../core/workflow');
+
 function logStartup(msg) {
   const line = `[${new Date().toISOString()}] ${msg}\n`;
   try {
@@ -543,4 +548,21 @@ ipcMain.handle('app:lifecycle-runner', async (event, { action, repoFullName }) =
       });
     }
   });
+});
+
+// ==============================================================================
+// WORKFLOW DISCOVERY & 1-CLICK ATTACH IPC HANDLERS [GRH-205..206]
+// ==============================================================================
+
+ipcMain.handle('workflow:fetch-repo-workflows', async (_, { repo, label }) => {
+  const token = currentAuth?.token || null;
+  return await fetchRepoWorkflows(token, repo, label || '');
+});
+
+ipcMain.handle('workflow:commit-patch', async (_, { repoFullName, filePath, patchedContent, sha, branch, message }) => {
+  const token = currentAuth?.token || null;
+  if (!token) {
+    return { success: false, error: 'Chưa đăng nhập GitHub để commit bản vá' };
+  }
+  return await commitWorkflowPatch(token, repoFullName, filePath, patchedContent, sha, branch, message);
 });

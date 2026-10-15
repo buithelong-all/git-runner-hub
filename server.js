@@ -20,6 +20,11 @@ const {
   clearAuthToken
 } = require('./src/core/auth');
 
+const {
+  fetchRepoWorkflows,
+  commitWorkflowPatch
+} = require('./src/core/workflow');
+
 const PORT = process.env.PORT || 3000;
 const RENDERER_DIR = path.join(__dirname, 'src', 'renderer');
 const USER_DATA_DIR = path.join(os.homedir(), '.git-runner-hub');
@@ -261,6 +266,32 @@ const server = http.createServer(async (req, res) => {
       }
     });
     return;
+  }
+
+  // ============================================================================
+  // WORKFLOW DISCOVERY & 1-CLICK ATTACH ENGINE [GRH-205..206]
+  // ============================================================================
+
+  if (pathname === '/api/workflows' && req.method === 'GET') {
+    const repoFullName = parsedUrl.searchParams.get('repo');
+    const customLabel = parsedUrl.searchParams.get('label') || '';
+    if (!repoFullName) {
+      return sendJson(res, { success: false, error: 'Thiếu tên repository', workflows: [] }, 400);
+    }
+
+    const token = currentAuth?.token || null;
+    const result = await fetchRepoWorkflows(token, repoFullName, customLabel);
+    return sendJson(res, result);
+  }
+
+  if (pathname === '/api/workflows/patch' && req.method === 'POST') {
+    const { repoFullName, filePath, patchedContent, sha, branch, message } = await parseBody(req);
+    const token = currentAuth?.token || null;
+    if (!token) {
+      return sendJson(res, { success: false, error: 'Vui lòng đăng nhập GitHub để 1-Click commit bản vá workflow' }, 401);
+    }
+    const result = await commitWorkflowPatch(token, repoFullName, filePath, patchedContent, sha, branch, message);
+    return sendJson(res, result);
   }
 
   // ============================================================================

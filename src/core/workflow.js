@@ -85,46 +85,93 @@ function findRunsOnLines(yamlContent) {
 
 function findWorkflowDiff(originalYaml, patchedYaml) {
   if (!originalYaml || !patchedYaml) return [];
-  const origLines = originalYaml.split('\n');
-  const patchLines = patchedYaml.split('\n');
-  const diffs = [];
+  if (originalYaml === patchedYaml) return [];
 
-  const maxLines = Math.max(origLines.length, patchLines.length);
-  for (let i = 0; i < maxLines; i++) {
-    const o = origLines[i];
-    const p = patchLines[i];
-    if (o !== p) {
-      diffs.push({
-        line: i + 1,
-        original: o !== undefined ? o : '',
-        patched: p !== undefined ? p : ''
-      });
+  const A = originalYaml.split('\n');
+  const B = patchedYaml.split('\n');
+  const m = A.length, n = B.length;
+
+  const dp = Array.from({ length: m + 1 }, () => new Int32Array(n + 1));
+  for (let i = 0; i < m; i++) {
+    for (let j = 0; j < n; j++) {
+      if (A[i] === B[j]) {
+        dp[i + 1][j + 1] = dp[i][j] + 1;
+      } else {
+        dp[i + 1][j + 1] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
     }
   }
-  return diffs;
+
+  let i = m, j = n;
+  const changes = [];
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && A[i - 1] === B[j - 1]) {
+      i--;
+      j--;
+    } else if (i > 0 && j > 0 && dp[i - 1][j] === dp[i][j - 1]) {
+      // Thay đổi tại cùng vị trí (modify)
+      changes.unshift({
+        type: 'modify',
+        line: i,
+        original: A[i - 1],
+        patched: B[j - 1]
+      });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      changes.unshift({
+        type: 'add',
+        line: j,
+        original: '',
+        patched: B[j - 1]
+      });
+      j--;
+    } else {
+      changes.unshift({
+        type: 'delete',
+        line: i,
+        original: A[i - 1],
+        patched: ''
+      });
+      i--;
+    }
+  }
+
+  return changes;
 }
 
-function generateProposedPatch(yamlContent, customLabel) {
+function generateProposedPatch(yamlContent, customLabel, options = {}) {
   if (!yamlContent) return null;
 
-  let patched = yamlContent;
-
   const targetRunsOn = customLabel 
-    ? `runs-on: [self-hosted, Linux, X64, ${customLabel}]`
-    : `runs-on: [self-hosted, Linux, X64]`;
+    ? `[self-hosted, Linux, X64, ${customLabel}]`
+    : `[self-hosted, Linux, X64]`;
 
-  // 1. Chuyển runs-on github-hosted sang custom self-hosted
-  patched = patched.replace(/runs-on\s*:\s*(\[.*?\]|ubuntu-latest|macos-latest|windows-latest|[a-zA-Z0-9_-]+)/g, () => {
-    return targetRunsOn;
+  const lines = yamlContent.split('\n');
+  const patchedLines = lines.map(line => {
+    const m = line.match(/^(\s*runs-on\s*:\s*)(.+)$/i);
+    if (m) {
+      const currentTarget = m[2].trim();
+      // Thay thế nếu đang dùng GitHub-hosted runners
+      if (/ubuntu-|windows-|macos-|latest/i.test(currentTarget)) {
+        return `${m[1]}${targetRunsOn}`;
+      }
+    }
+    return line;
   });
 
-  // 2. Bổ sung concurrency nếu là non-deploy workflow và chưa có
-  const isDeploy = /(deploy|release|publish|production)/i.test(yamlContent);
-  if (!isDeploy && !/concurrency\s*:/i.test(patched)) {
-    patched = patched.replace(/^on\s*:\s*([\s\S]*?)(jobs\s*:)/m, (match, onBlock, jobsBlock) => {
-      const concurrencyBlock = `\nconcurrency:\n  group: ci-\${{ github.workflow }}-\${{ github.ref }}\n  cancel-in-progress: true\n\n`;
-      return `on:${onBlock}${concurrencyBlock}${jobsBlock}`;
-    });
+  let patched = patchedLines.join('\n');
+
+  // Mặc định bổ sung concurrency nếu là non-deploy workflow và chưa có (trừ khi options.injectConcurrency === false)
+  const shouldInjectConcurrency = options.injectConcurrency !== false;
+  if (shouldInjectConcurrency) {
+    const isDeploy = /(deploy|release|publish|production)/i.test(yamlContent);
+    if (!isDeploy && !/concurrency\s*:/i.test(patched)) {
+      patched = patched.replace(/^on\s*:\s*([\s\S]*?)(jobs\s*:)/m, (match, onBlock, jobsBlock) => {
+        const concurrencyBlock = `\nconcurrency:\n  group: ci-\${{ github.workflow }}-\${{ github.ref }}\n  cancel-in-progress: true\n\n`;
+        return `on:${onBlock}${concurrencyBlock}${jobsBlock}`;
+      });
+    }
   }
 
   return patched;
@@ -147,11 +194,130 @@ function verifyRunExecution(jobDetail, intendedRunnerName) {
   };
 }
 
+/**
+ * Lấy danh sách toàn bộ workflows từ GitHub repo qua API, tự động phân tích và tạo bản vá Diff
+ */
+async function fetchRepoWorkflows(token, repoFullName, customLabel = '') {
+  if (!repoFullName) return { success: false, error: 'Thiếu tên repository', workflows: [] };
+
+  const headers = {
+    'User-Agent': 'GitRunnerHub',
+    'Accept': 'application/vnd.github.v3+json'
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token.trim()}`;
+  }
+
+  try {
+    const listRes = await fetch(`https://api.github.com/repos/${repoFullName}/contents/.github/workflows`, { headers });
+    
+    if (listRes.status === 404) {
+      return { success: true, workflows: [], message: 'Không tìm thấy thư mục .github/workflows' };
+    }
+    if (!listRes.ok) {
+      return { success: false, error: `GitHub API HTTP ${listRes.status}`, workflows: [] };
+    }
+
+    const files = await listRes.json();
+    if (!Array.isArray(files)) {
+      return { success: true, workflows: [] };
+    }
+
+    const yamlFiles = files.filter(f => f.type === 'file' && (f.name.endsWith('.yml') || f.name.endsWith('.yaml')));
+    const workflows = [];
+
+    for (const file of yamlFiles) {
+      try {
+        const fileRes = await fetch(file.url, { headers });
+        if (fileRes.ok) {
+          const fileData = await fileRes.json();
+          const rawYaml = Buffer.from(fileData.content, 'base64').toString('utf8');
+          const runsOnMatches = findRunsOnLines(rawYaml);
+          const inspectData = inspectWorkflow(rawYaml);
+          const proposedPatch = generateProposedPatch(rawYaml, customLabel);
+          const diffs = findWorkflowDiff(rawYaml, proposedPatch);
+          const needsPatch = diffs.length > 0;
+
+          workflows.push({
+            name: file.name,
+            path: file.path,
+            sha: fileData.sha,
+            downloadUrl: file.download_url,
+            runsOnLines: runsOnMatches,
+            routing: inspectData.routing,
+            needsPatch,
+            diffs,
+            originalContent: rawYaml,
+            patchedContent: proposedPatch
+          });
+        }
+      } catch (e) {
+        console.warn(`Lỗi đọc file ${file.name}:`, e.message);
+      }
+    }
+
+    return { success: true, workflows };
+  } catch (err) {
+    return { success: false, error: err.message, workflows: [] };
+  }
+}
+
+/**
+ * 1-Click Commit bản vá trực tiếp lên GitHub repo
+ */
+async function commitWorkflowPatch(token, repoFullName, filePath, patchedContent, sha, branch = null, message = null) {
+  if (!token) return { success: false, error: 'Chưa có token xác thực GitHub' };
+  if (!repoFullName || !filePath || !patchedContent || !sha) {
+    return { success: false, error: 'Thiếu thông số bắt buộc để commit' };
+  }
+
+  const commitMsg = message || `ci: route jobs to self-hosted runner via GitRunnerHub [1-click patch]`;
+  const body = {
+    message: commitMsg,
+    content: Buffer.from(patchedContent, 'utf8').toString('base64'),
+    sha
+  };
+  if (branch) {
+    body.branch = branch;
+  }
+
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repoFullName}/contents/${filePath}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token.trim()}`,
+        'User-Agent': 'GitRunnerHub',
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      return { success: false, error: errData.message || `HTTP ${res.status}` };
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      commitSha: data.commit?.sha || null,
+      commitUrl: data.commit?.html_url || null,
+      contentSha: data.content?.sha || null
+    };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 module.exports = {
   inspectWorkflow,
   findRunsOnLines,
   findWorkflowDiff,
   generateProposedPatch,
-  verifyRunExecution
+  verifyRunExecution,
+  fetchRepoWorkflows,
+  commitWorkflowPatch
 };
+
 
