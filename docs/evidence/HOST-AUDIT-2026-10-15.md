@@ -59,14 +59,16 @@ The owner approved backup and staging for `buithelong-all/git-runner-hub` only. 
 | Legacy UID 1000 reads new runner `.credentials` | 1 | Denied |
 | New UID 997 reads legacy DanhTinh-Lab install directory | 0 | Allowed |
 | New UID 997 reads legacy DanhTinh-Lab `.credentials` | 0 | **Allowed: host gate failure** |
+| New UID 997 reads legacy caevietnam.vn `.credentials` | 0 | **Allowed: host gate failure** |
 | New UID 997 reads legacy DanhTinh-Lab `.credentials_rsaparams` | 1 | Denied |
 
-The old `/home/actions-runner` mode `0750` protects its workspaces from the new UID. The legacy install directory `0755` and `.credentials` mode `0664` leave a cross-repository credential-file read path. Do not infer usable credentials or secret contents from `test -r`; no contents were opened. Distinct UIDs alone do not close this finding.
+The old `/home/actions-runner` mode `0750` protects its workspaces from the new UID. Both legacy install directories (`/opt/actions-runner` for caevietnam.vn and `/opt/actions-runner-buithelong-all-DanhTinh-Lab`) were observed `0755` with `.credentials` mode `0664`, leaving cross-repository credential-file read paths. Do not infer usable credentials or secret contents from `test -r`; no contents were opened. Distinct UIDs alone do not close this finding.
 
 ### Verified safe rollback and remaining gates
 
 - On host validation failure, stopped the exact new service using systemd and disabled its autostart. The enablement symlink created during staging was removed; the service unit, registration, account, directories and backup were retained.
 - Observed new service `inactive/dead`, `MainPID=0`, no remaining processes for UID 997. Legacy service remained `active/running`, UID 1000, MainPID 122, with GitHub online/idle observation.
+- Final GitHub readback observed staging `offline`; its systemd autostart is `disabled`. Legacy remained online and was briefly busy processing the documentation PR update CI, which is expected operational traffic.
 - This verifies retreat from staging while the original runner remains operational. It does **not** verify stop/start recovery of a legacy runner after cutover; no legacy cutover was performed.
 - `CODE_TEST_PASS`: 23/23 local tests and successful exact-SHA legacy CI at `ca178e9...`.
 - `HOST_ISOLATION_VERIFIED`: **NOT_VERIFIED / REQUEST_CHANGES**, because cross-repository credential-file readability remains.
