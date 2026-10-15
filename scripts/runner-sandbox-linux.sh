@@ -23,7 +23,7 @@ render() {
     'ProtectSystem=strict' 'ProtectHome=yes' 'PrivateTmp=yes' 'PrivateDevices=yes' \
     'PrivateMounts=yes' 'ProtectProc=invisible' 'ProcSubset=pid' \
     'ProtectKernelTunables=yes' 'ProtectKernelModules=yes' 'ProtectKernelLogs=yes' \
-    'ProtectControlGroups=yes' 'RestrictNamespaces=yes' 'RestrictSUIDSGID=yes' \
+    'ProtectControlGroups=yes' 'RestrictNamespaces=yes' \
     'RestrictRealtime=yes' 'LockPersonality=yes' 'SystemCallArchitectures=native' \
     'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6' \
     'InaccessiblePaths=-/media -/init -/run/WSL -/usr/lib/wsl -/run/user -/run/dbus -/run/systemd/private -/run/docker.sock -/proc/sys/fs/binfmt_misc' \
@@ -33,7 +33,7 @@ render() {
     "ReadWritePaths=$runner $home_dir $work" \
     "Environment=HOME=$home_dir PATH=/usr/local/bin:/usr/bin:/bin" \
     'UnsetEnvironment=WSL_INTEROP WSLENV WSL_DISTRO_NAME XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS' \
-    'KillMode=control-group' 'UMask=0077' \
+    'KillMode=control-group' 'TimeoutStopSec=30s' 'UMask=0077' \
     "ExecStartPre=/usr/bin/bash $checker $repo"
 }
 if [[ "$action" == --render ]]; then render; exit 0; fi

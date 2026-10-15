@@ -21,4 +21,14 @@ grep -q '^NoNewPrivs:[[:space:]]*1$' /proc/self/status
 grep -q '^CapBnd:[[:space:]]*0000000000000000$' /proc/self/status
 if unshare --mount -- true 2>/dev/null; then echo NAMESPACE_ESCAPE_ALLOWED >&2; exit 4; fi
 if test -n "${WSL_INTEROP:-}"; then echo INTEROP_ENV_PRESENT >&2; exit 4; fi
+# systemd 259 RestrictSUIDSGID can break GNU tar openat2 on nested archives.
+# This smoke test catches that failure before the runner accepts a CI job.
+probe_dir=$(mktemp -d /tmp/grh-sandbox-smoke.XXXXXXXX)
+case "$probe_dir" in /tmp/grh-sandbox-smoke.*) ;; *) exit 4;; esac
+trap 'rm -rf -- "$probe_dir"' EXIT
+mkdir -p "$probe_dir/in/nested" "$probe_dir/out"
+touch "$probe_dir/in/nested/file"
+tar -czf "$probe_dir/probe.tar.gz" -C "$probe_dir/in" nested
+tar -xzf "$probe_dir/probe.tar.gz" -C "$probe_dir/out"
+test -f "$probe_dir/out/nested/file"
 printf 'SANDBOX_CHECK=PASS UID=%s\n' "$(id -u)"

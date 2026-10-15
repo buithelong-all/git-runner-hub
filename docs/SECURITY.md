@@ -41,6 +41,8 @@ The checker runs before the listener and again in CI. Host acceptance additional
 
 This profile currently targets the audited systemd-enabled WSL host with `/mnt/wsl/resolv.conf`. It is not automatically applied by the existing desktop installer, and must not be described as a blanket fix for new desktop installations or macOS. Containers, Docker and namespace-based build tooling are intentionally unavailable under this policy. Network access remains available for GitHub; unrestricted network/localhost service isolation is not established by this filesystem profile. Kernel exploits and administrator/root actions are outside the observed boundary.
 
+The profile intentionally omits `RestrictSUIDSGID` on systemd 259: an A/B host probe confirmed nested GNU tar extraction fails with ENOSYS when that option is enabled and passes without it ([upstream issue 43314](https://github.com/systemd/systemd/issues/43314)). `NoNewPrivileges=yes` and an empty capability bounding set remain mandatory and are checked at runtime; privilege elevation is not enabled. Startup smoke tests include nested archive extraction so an incompatible profile cannot silently accept jobs.
+
 ## Verification requirements
 
 The Node test suite checks deterministic unique identities, safe repository input, non-destructive planning, critical script invariants, desktop stdin transport, fork blocking and checkout credential handling. Those tests **do not** establish that a service is running with the intended UID or that one repo cannot read another repo's files. Verify those properties on the actual Linux host, then run a real GitHub Actions job on the intended runner and collect exact SHA, runner name and test receipts.
